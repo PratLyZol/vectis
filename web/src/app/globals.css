@@ -1,0 +1,979 @@
+@import "tailwindcss";
+
+/* One system: one palette, one type pair, square corners throughout, one button set. */
+@theme {
+  --color-ground: #000000; /* page background */
+  --color-surface: #0a0a0a; /* cards and panels */
+  --color-raised: #1a1a1a; /* chips, secondary buttons, icon tiles, bar tracks */
+  --color-border: #222222; /* card borders and dividers */
+  --color-border-2: #333333; /* outlined chips and badges */
+  --color-text: #ffffff;
+  --color-text-2: #cfcfcf; /* secondary text, unselected button labels */
+  --color-muted: #808080; /* labels and captions */
+  --color-accent: #ffffff; /* Yes, positive PnL, primary action, bar fills */
+  --color-accent-hi: #d9d9d9; /* hover on accent */
+  --color-danger: #a6a6a6; /* No, liquidation price, negative PnL */
+  --color-yes-tint: rgb(255 255 255 / 0.18);
+  --color-no-tint: rgb(255 255 255 / 0.06);
+
+  --font-sans: var(--font-host-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+
+  /* Motion: the only curves in the app. Colour and hover changes use the built-in `ease`. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* entering, exiting, press feedback */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); /* something moving or morphing on screen */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); /* sheets and drawers (none yet) */
+}
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+  }
+
+  html {
+    background: var(--color-ground);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    background: var(--color-ground);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin: 0;
+    text-wrap: balance;
+  }
+  /* Card and row titles sit close to body size, so they carry a little more weight. */
+  h3 {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  /* Focus: a 2px ring in the accent colour, 2px off the control, no transition. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Amount inputs never show native spinners. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  /* The single content column: equal left and right edges on every page. */
+  .wrap {
+    width: 100%;
+    max-width: 1240px;
+    margin-inline: auto;
+    padding-inline: 16px;
+  }
+  @media (min-width: 768px) {
+    .wrap {
+      padding-inline: 32px;
+    }
+  }
+
+  .skip-link {
+    position: absolute;
+    left: 16px;
+    top: 10px;
+    z-index: 60;
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: var(--color-accent);
+    color: var(--color-ground);
+    font-weight: 500;
+    text-decoration: none;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus {
+    transform: none;
+  }
+
+  /* Landing hero tile grid: fills the hero edge to edge behind its content and fades out at its foot. */
+  .tile-field {
+    position: absolute;
+    top: -48px; /* up under the nav, over the page's top padding */
+    bottom: 0;
+    left: 50%;
+    z-index: 0;
+    width: 100vw;
+    height: calc(100% + 48px);
+    transform: translateX(-50%);
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+  }
+
+  /* Landing page rhythm and type. */
+  .section {
+    margin-top: 72px;
+  }
+  @media (min-width: 768px) {
+    .section {
+      margin-top: 112px;
+    }
+  }
+  .eyebrow {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .display {
+    font-size: clamp(36px, 4.8vw, 56px);
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+  }
+  .h-section {
+    font-size: clamp(24px, 2.6vw, 32px);
+    letter-spacing: -0.02em;
+  }
+
+  /* Hero entrance (landing and /lend, once per load): each line of the headline, then the lead, the
+     buttons and the product panel come into focus 80ms apart: a 2px blur clears while the element
+     rises 6px. Blur and movement are added only without a reduced-motion preference; the hidden
+     state lives in the keyframes, so nothing stays hidden if they never run. */
+  .enter-line,
+  .enter-line > span {
+    display: block;
+  }
+  .enter {
+    animation: enter-fade 200ms ease both;
+    animation-delay: calc(var(--i, 0) * 80ms);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .enter {
+      animation: enter-up 500ms var(--ease-out) both;
+      animation-delay: calc(var(--i, 0) * 80ms);
+    }
+    /* The product panel's frame draws itself while the panel comes into focus: the top and
+       bottom edges run left to right, then the left and right edges run top to bottom. The frame
+       is a copy of the card's border on two pseudo-elements, one carrying the horizontal pair and
+       one the vertical pair, each scaled along its own length (see the note on rules below). */
+    .enter-panel > .card {
+      position: relative;
+      border-color: transparent;
+    }
+    .enter-panel > .card::before,
+    .enter-panel > .card::after {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      pointer-events: none;
+    }
+    .enter-panel > .card::before {
+      border-block: 1px solid var(--color-border);
+      transform-origin: left;
+      animation: draw-x 800ms var(--ease-in-out) both;
+      animation-delay: calc(var(--i, 0) * 80ms);
+    }
+    .enter-panel > .card::after {
+      border-inline: 1px solid var(--color-border);
+      transform-origin: top;
+      animation: draw-y 800ms var(--ease-in-out) both;
+      animation-delay: calc(var(--i, 0) * 80ms + 160ms);
+    }
+  }
+
+  /* Hairline rules that draw themselves (landing dividers, on first reveal only). The line is a
+     1px pseudo-element scaled along its length from the left end. A line growing from zero
+     length is a line being drawn, not the scale(0) element entrance: it has no area to pop from. */
+  .rule-t,
+  .rule-y {
+    position: relative;
+  }
+  .rule-t::before,
+  .rule-y::before,
+  .rule-y::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1px;
+    background: var(--color-border);
+    transform-origin: left;
+    transition: opacity 200ms ease;
+  }
+  .rule-y::after {
+    top: auto;
+    bottom: 0;
+  }
+  [data-reveal="pending"] .rule-t::before,
+  [data-reveal="pending"] .rule-y::before,
+  [data-reveal="pending"] .rule-y::after {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .rule-t::before,
+    .rule-y::before,
+    .rule-y::after {
+      transition: transform 800ms var(--ease-in-out);
+    }
+    .rule-y::after {
+      transition-delay: 120ms;
+    }
+    [data-reveal="pending"] .rule-t::before,
+    [data-reveal="pending"] .rule-y::before,
+    [data-reveal="pending"] .rule-y::after {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+  }
+
+  /* The nav's bottom rule: absent at the top of the page, drawn across once the page is scrolled,
+     and retracted on return. A transition, so it retargets if the direction reverses. As above,
+     a line scaled from zero length is being drawn. */
+  .nav-rule::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: var(--color-border);
+    transform-origin: left;
+    transition: opacity 200ms ease;
+  }
+  .nav-rule[data-scrolled="false"]::after {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .nav-rule::after {
+      transition: transform 300ms var(--ease-in-out);
+    }
+    .nav-rule[data-scrolled="false"]::after {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+  }
+
+  /* Scroll reveal (landing and /lend only, once): a section's heading wipes in and its items follow 50ms
+     apart. Sections are marked pending by script only when they start below the fold, so without
+     script, or for content already on screen, everything is simply visible. */
+  .rv {
+    transition: opacity 200ms ease;
+  }
+  .rv-clip {
+    transition: opacity 200ms ease;
+  }
+  [data-reveal="pending"] .rv,
+  [data-reveal="pending"] .rv-clip {
+    opacity: 0;
+  }
+  /* Diagram parts arrive in order to show the flow from left to right. */
+  .d {
+    transform-box: fill-box;
+    transition: opacity 200ms ease;
+  }
+  [data-reveal="pending"] .d {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .rv {
+      transition:
+        opacity 300ms var(--ease-out),
+        transform 300ms var(--ease-out);
+      /* The heading's wipe leads; the items follow it. */
+      transition-delay: calc(150ms + var(--i, 0) * 50ms);
+    }
+    [data-reveal="pending"] .rv {
+      transform: translateY(6px);
+    }
+    /* The heading wipes down and a 4px blur clears over the first 60% of the wipe. */
+    .rv-clip {
+      transition:
+        clip-path 600ms var(--ease-in-out),
+        filter 360ms var(--ease-in-out);
+      clip-path: inset(0 0 0 0);
+    }
+    [data-reveal="pending"] .rv-clip {
+      opacity: 1;
+      clip-path: inset(0 0 100% 0);
+      filter: blur(4px);
+    }
+    .d {
+      transition:
+        opacity 400ms var(--ease-out),
+        transform 400ms var(--ease-out);
+      transition-delay: calc(300ms + var(--d, 0) * 160ms);
+    }
+    [data-reveal="pending"] .d {
+      transform: translateX(-8px);
+    }
+  }
+
+  /* A row that arrives in the activity feed after the first load fades in. It does not move:
+     the list is being read. */
+  .row-new {
+    transition: opacity 250ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  /* Content that replaces a loading line (a list, the order book, vault figures), and a status
+     that has just changed: fades in and does not move, because it is about to be read. A
+     transition, so it retargets if the content is swapped again before it finishes. */
+  .fade-in {
+    transition: opacity 200ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  /* Something that appears because of an action (a status note, an error): fades in, and rises
+     8px without a reduced-motion preference. */
+  .appear {
+    transition: opacity 200ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .appear {
+      transition:
+        opacity 200ms var(--ease-out),
+        transform 200ms var(--ease-out);
+      @starting-style {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+    }
+  }
+  .over-field {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Every number that is data: the mono face, tabular figures. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Large headline figures are set in the UI face at regular weight, with tabular figures. */
+  .figure {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  /* Cards: square corners, 1px border, no shadow, no gradient. */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* A card with a link inside: its border steps up on hover. Seen tens of times a visit, so it
+     changes colour and does not move. */
+  .card-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 150ms ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .card-link:hover {
+      border-color: var(--color-border-2);
+    }
+  }
+  .card-link:focus-visible,
+  .card-link:focus-within {
+    border-color: var(--color-border-2);
+  }
+
+  /* A link that covers its card, so the whole card is the target. Controls inside sit above it. */
+  .stretch::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-lg);
+  }
+
+  /* 44px square icon tile: raised ground, accent stroke icon. */
+  .icon-tile {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--color-raised);
+    color: var(--color-accent);
+  }
+  .icon-tile-sm {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Buttons. Hover steps the fill and lifts 1px; press sinks 1px and scales .985. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 18px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-ground);
+  }
+  .btn-secondary {
+    background: var(--color-raised);
+    color: var(--color-text-2);
+  }
+  /* Text-colour fill: the selected leverage chip and "Sell". */
+  .btn-solid {
+    background: var(--color-text);
+    color: var(--color-ground);
+  }
+  .btn-danger {
+    background: var(--color-danger);
+    color: var(--color-ground);
+  }
+  .btn-outline {
+    background: transparent;
+    border-color: var(--color-border-2);
+    color: var(--color-text-2);
+  }
+  .btn-yes-tint {
+    background: var(--color-yes-tint);
+    color: var(--color-accent);
+  }
+  .btn-no-tint {
+    background: var(--color-no-tint);
+    color: var(--color-danger);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:not(:disabled):hover {
+      background: var(--color-accent-hi);
+    }
+    .btn-secondary:not(:disabled):hover {
+      background: var(--color-border-2);
+      color: var(--color-text);
+    }
+    .btn-solid:not(:disabled):hover {
+      background: var(--color-text-2);
+    }
+    .btn-danger:not(:disabled):hover {
+      background: color-mix(in srgb, var(--color-danger) 86%, var(--color-text));
+    }
+    .btn-outline:not(:disabled):hover {
+      border-color: var(--color-muted);
+      color: var(--color-text);
+    }
+    .btn-yes-tint:hover {
+      background: color-mix(in srgb, var(--color-accent) 26%, transparent);
+    }
+    .btn-no-tint:hover {
+      background: color-mix(in srgb, var(--color-danger) 26%, transparent);
+    }
+  }
+  /* Press feedback: the control scales to 97% while held. A disabled control never moves. */
+  @media (prefers-reduced-motion: no-preference) {
+    .btn {
+      transition:
+        transform 160ms var(--ease-out),
+        background-color 150ms ease,
+        border-color 150ms ease,
+        color 150ms ease;
+    }
+    .btn:not(:disabled):not([aria-disabled="true"]):active {
+      transform: scale(0.97);
+    }
+  }
+  /* Disabled keeps a readable label: muted on raised. */
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    cursor: not-allowed;
+    background: var(--color-raised);
+    border-color: transparent;
+    color: var(--color-muted);
+  }
+  .btn-block {
+    width: 100%;
+  }
+  .btn-lg {
+    min-height: 52px;
+    font-size: 15px;
+  }
+  .btn-48 {
+    min-height: 48px;
+  }
+
+  /* Links: one look. Rest on a faint hairline; the line takes the text colour on hover. */
+  .link {
+    color: var(--color-text);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    text-decoration-color: var(--color-muted);
+    transition: text-decoration-color 150ms ease;
+  }
+  .link:hover {
+    text-decoration-color: var(--color-text);
+  }
+
+  /* A link standing on its own line gets a 44px touch area without moving the text. */
+  .link-tap {
+    position: relative;
+  }
+  .link-tap::after {
+    content: "";
+    position: absolute;
+    inset: -14px -8px;
+  }
+
+  /* Nav words rest muted, brighten on hover; the current page carries a 2px bar. */
+  .nav-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 12px;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 150ms ease;
+  }
+  .nav-link:hover {
+    color: var(--color-text);
+  }
+  .nav-link[aria-current="page"] {
+    color: var(--color-text);
+  }
+  .nav-link[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 6px;
+    height: 2px;
+    background: var(--color-text);
+  }
+
+  /* Tabs in a panel: the active one is in the text colour with a 2px underline. */
+  .tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 150ms ease;
+  }
+  .tab:hover {
+    color: var(--color-text-2);
+  }
+  .tab[aria-selected="true"] {
+    color: var(--color-text);
+  }
+  .tab[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--color-text);
+  }
+
+  /* Fields: the accent border and a 3px soft ring on focus. */
+  .field {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    background: var(--color-ground);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font: inherit;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+  .field::placeholder {
+    color: var(--color-muted);
+  }
+  .field:hover {
+    border-color: var(--color-muted);
+  }
+  .field:focus,
+  .field:focus-visible {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-yes-tint);
+  }
+
+  /* The large amount entry: borderless and transparent, right aligned. */
+  .amount {
+    min-width: 1ch;
+    max-width: 100%;
+    min-height: 48px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 40px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    text-align: right;
+  }
+  .amount::placeholder {
+    color: var(--color-muted);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  /* Chips: raised by default; outlined for badges; tinted for Yes and No. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: var(--color-raised);
+    color: var(--color-text-2);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .chip-outline {
+    background: transparent;
+    border-color: var(--color-border-2);
+  }
+  .chip-yes {
+    background: var(--color-yes-tint);
+    color: var(--color-accent);
+  }
+  .chip-no {
+    background: var(--color-no-tint);
+    color: var(--color-danger);
+  }
+
+  /* Segmented choice (book side, category filter, leg outcome). */
+  .seg {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 4px;
+    padding: 4px;
+    background: var(--color-ground);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-md);
+  }
+  .seg-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 0;
+    color: var(--color-muted);
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+  .seg-item:hover {
+    color: var(--color-text);
+  }
+  .seg-item input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .seg-item:has(input:checked) {
+    background: var(--color-raised);
+    color: var(--color-text);
+  }
+  .seg-item[data-tone="yes"]:has(input:checked) {
+    background: var(--color-yes-tint);
+    color: var(--color-accent);
+  }
+  .seg-item[data-tone="no"]:has(input:checked) {
+    background: var(--color-no-tint);
+    color: var(--color-danger);
+  }
+  .seg-item:has(input:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  /* A segmented row that sizes to its words and scrolls inside itself on a narrow screen. */
+  .seg-scroll {
+    grid-auto-columns: max-content;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  /* Progress bar: 6px, square ends, raised track, accent fill. */
+  .bar {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 0;
+    background: var(--color-raised);
+  }
+  /* The fill is full width and slides in from the left by transform, so a new value never
+     triggers layout. */
+  .bar > span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    background: var(--color-accent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .bar > span {
+      transition: transform 250ms var(--ease-in-out);
+    }
+  }
+
+  /* Label and value rows inside a card: muted label left, value right. */
+  .rows {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    font-size: 14px;
+  }
+  .rows > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .rows dt {
+    color: var(--color-muted);
+  }
+  .rows dd {
+    margin: 0;
+    text-align: right;
+  }
+
+  /* Stats strip: equal columns between two dividers. */
+  .stats {
+    display: grid;
+    gap: 16px 12px;
+    margin: 0;
+    padding: 16px 0;
+    border-block: 1px solid var(--color-border);
+  }
+  .stats dt {
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  .stats dd {
+    margin: 4px 0 0;
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .note {
+    padding: 12px;
+    background: var(--color-raised);
+    border-radius: var(--radius-md);
+    color: var(--color-text-2);
+    font-size: 13px;
+  }
+}
+
+/* Replay announcements. An event shows twice: the chart takes a brief wash, and a label floats
+   up out of it. The float is a transition, not a keyframe animation, so a fast run of events can
+   push a label out from wherever it has got to. Opacity is quicker than the movement, so a label
+   fades while still drifting. */
+@keyframes replay-wash {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.replay-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgb(255 255 255 / 0.16), transparent 70%);
+  animation: replay-wash 900ms var(--ease-out) forwards;
+}
+.replay-wash[data-tone="down"] {
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--color-danger) 22%, transparent), transparent 70%);
+}
+.replay-wash[data-strong] {
+  background: radial-gradient(ellipse at center, rgb(255 255 255 / 0.3), transparent 75%);
+}
+.replay-wash[data-strong][data-tone="down"] {
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--color-danger) 40%, transparent), transparent 75%);
+}
+.replay-flash {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  color: var(--color-text);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 620ms var(--ease-out);
+}
+.replay-flash[data-tone="down"] {
+  color: var(--color-danger);
+}
+@media (max-width: 640px) {
+  .replay-flash {
+    font-size: 17px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .replay-flash {
+    transition: opacity 240ms var(--ease-out);
+    transform: translate(-50%, 0) !important;
+  }
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes enter-up {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(6px);
+  }
+}
+@keyframes draw-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes draw-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Wallet chooser: the one modal. Centered, so it scales from the centre (modals are exempt from
+   trigger-anchored origins). */
+.wallet-dialog {
+  width: min(360px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--color-border-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.wallet-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wallet-dialog[open] {
+    opacity: 1;
+    transform: scale(1);
+    transition:
+      opacity 250ms var(--ease-out),
+      transform 250ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+}

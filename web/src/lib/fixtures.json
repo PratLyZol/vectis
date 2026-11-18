@@ -1,0 +1,577 @@
+[
+ {
+  "id": "440339",
+  "ticker": "NCAAF-2611150230-TTU-OKST-M",
+  "title": "Texas Tech vs Oklahoma State",
+  "slug": "texas-tech-vs-oklahoma-state",
+  "category": "Sports",
+  "status": "active",
+  "expiry": "2026-11-16T02:30:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/Football_fb67fb13-3768-40c7-a99d-cbe2644d299e.avif",
+  "volume": 35999.82,
+  "volume24h": 35893.47,
+  "contractCount": 2,
+  "contracts": [
+   {
+    "symbol": "GEMI-NCAAF-2611150230-TTU-OKST-M-TTU",
+    "label": "Texas Tech",
+    "ticker": "TTU",
+    "open": true,
+    "expiry": "2026-11-16T02:30:00.000Z",
+    "yesBid": 870000,
+    "yesAsk": 890000,
+    "last": 890000
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611150230-TTU-OKST-M-OKST",
+    "label": "Oklahoma State",
+    "ticker": "OKST",
+    "open": true,
+    "expiry": "2026-11-16T02:30:00.000Z",
+    "yesBid": 110000,
+    "yesAsk": 150000,
+    "last": 100000
+   }
+  ]
+ },
+ {
+  "id": "440318",
+  "ticker": "NCAAF-2611150030-UTA-ARI-M",
+  "title": "Utah vs Arizona",
+  "slug": "utah-vs-arizona",
+  "category": "Sports",
+  "status": "active",
+  "expiry": "2026-11-16T03:30:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/Football_fb67fb13-3768-40c7-a99d-cbe2644d299e.avif",
+  "volume": 43287.29,
+  "volume24h": 42643.09,
+  "contractCount": 2,
+  "contracts": [
+   {
+    "symbol": "GEMI-NCAAF-2611150030-UTA-ARI-M-UTA",
+    "label": "Utah",
+    "ticker": "UTA",
+    "open": true,
+    "expiry": "2026-11-16T03:30:00.000Z",
+    "yesBid": 660000,
+    "yesAsk": 670000,
+    "last": 660000
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611150030-UTA-ARI-M-ARI",
+    "label": "Arizona",
+    "ticker": "ARI",
+    "open": true,
+    "expiry": "2026-11-16T03:30:00.000Z",
+    "yesBid": 340000,
+    "yesAsk": 350000,
+    "last": 350000
+   }
+  ]
+ },
+ {
+  "id": "440233",
+  "ticker": "NFL-2611151430-NE-DET-M",
+  "title": "New England vs Detroit",
+  "slug": "new-england-vs-detroit",
+  "category": "Sports",
+  "status": "active",
+  "expiry": "2026-11-17T02:30:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/Football_fb67fb13-3768-40c7-a99d-cbe2644d299e.avif",
+  "volume": 12781.02,
+  "volume24h": 10427.27,
+  "contractCount": 2,
+  "contracts": [
+   {
+    "symbol": "GEMI-NFL-2611151430-NE-DET-M-DET",
+    "label": "Detroit",
+    "ticker": "DET",
+    "open": true,
+    "expiry": "2026-11-17T02:30:00.000Z",
+    "yesBid": 570000,
+    "yesAsk": 580000,
+    "last": 580000
+   },
+   {
+    "symbol": "GEMI-NFL-2611151430-NE-DET-M-NE",
+    "label": "New England",
+    "ticker": "NE",
+    "open": true,
+    "expiry": "2026-11-17T02:30:00.000Z",
+    "yesBid": 420000,
+    "yesAsk": 430000,
+    "last": 430000
+   }
+  ]
+ },
+ {
+  "id": "461868",
+  "ticker": "BRENT2611152200",
+  "title": "Oil (Brent) price on November 15?",
+  "slug": "oil-brent-price-on-november-15",
+  "category": "Commodities",
+  "status": "active",
+  "expiry": "2026-11-15T22:00:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/oil_thumb_b051e146-0bb8-480e-9a08-14ebbc9aa70c.avif",
+  "volume": 8,
+  "volume24h": 8,
+  "contractCount": 6,
+  "contracts": [
+   {
+    "symbol": "GEMI-BRENT2611152200-HI91",
+    "label": "$91 or above",
+    "ticker": "HI91",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 780000,
+    "yesAsk": 980000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-BRENT2611152200-HI92",
+    "label": "$92 or above",
+    "ticker": "HI92",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 660000,
+    "yesAsk": 840000,
+    "last": 840000
+   },
+   {
+    "symbol": "GEMI-BRENT2611152200-HI93",
+    "label": "$93 or above",
+    "ticker": "HI93",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 500000,
+    "yesAsk": 700000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-BRENT2611152200-HI94",
+    "label": "$94 or above",
+    "ticker": "HI94",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 310000,
+    "yesAsk": 510000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-BRENT2611152200-HI95",
+    "label": "$95 or above",
+    "ticker": "HI95",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 150000,
+    "yesAsk": 350000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-BRENT2611152200-HI96",
+    "label": "$96 or above",
+    "ticker": "HI96",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 30000,
+    "yesAsk": 230000,
+    "last": null
+   }
+  ]
+ },
+ {
+  "id": "406728",
+  "ticker": "ETH2611302200",
+  "title": "ETH price on November 30",
+  "slug": "eth-price-on-november-30",
+  "category": "Crypto",
+  "status": "active",
+  "expiry": "2026-11-30T22:00:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/eth_427f68cf-9bf1-4b52-9738-6e906c1e2146.avif",
+  "volume": 27478.34,
+  "volume24h": 5434.36,
+  "contractCount": 8,
+  "contracts": [
+   {
+    "symbol": "GEMI-ETH2611302200-HI1250",
+    "label": "$1,250 or above",
+    "ticker": "HI1250",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 950000,
+    "yesAsk": 990000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI1500",
+    "label": "$1,500 or above",
+    "ticker": "HI1500",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 940000,
+    "yesAsk": 950000,
+    "last": 880000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI1750",
+    "label": "$1,750 or above",
+    "ticker": "HI1750",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 710000,
+    "yesAsk": 720000,
+    "last": 780000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI2000",
+    "label": "$2,000 or above",
+    "ticker": "HI2000",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 110000,
+    "yesAsk": 170000,
+    "last": 150000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI2250",
+    "label": "$2,250 or above",
+    "ticker": "HI2250",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 10000,
+    "yesAsk": 40000,
+    "last": 50000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI2750",
+    "label": "$2,750 or above",
+    "ticker": "HI2750",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 50000,
+    "yesAsk": 40000,
+    "last": 50000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI3000",
+    "label": "$3,000 or above",
+    "ticker": "HI3000",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 40000,
+    "yesAsk": 40000,
+    "last": 40000
+   },
+   {
+    "symbol": "GEMI-ETH2611302200-HI2500",
+    "label": "$2,500 or above",
+    "ticker": "HI2500",
+    "open": true,
+    "expiry": "2026-11-30T22:00:00.000Z",
+    "yesBid": 10000,
+    "yesAsk": 20000,
+    "last": 50000
+   }
+  ]
+ },
+ {
+  "id": "301111",
+  "ticker": "FED261211",
+  "title": "Fed decision in December?",
+  "slug": "fed-decision-in-december",
+  "category": "Economics",
+  "status": "active",
+  "expiry": "2026-12-11T05:00:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/fed_Contract_Image_0473d1d2-593c-4acf-b619-cc645a4347fb.avif",
+  "volume": 12585.24,
+  "volume24h": 153.33,
+  "contractCount": 5,
+  "contracts": [
+   {
+    "symbol": "GEMI-FED261211-HIKE25",
+    "label": "Hike 25bps",
+    "ticker": "HIKE25",
+    "open": true,
+    "expiry": "2026-12-11T05:00:00.000Z",
+    "yesBid": 830000,
+    "yesAsk": 900000,
+    "last": 900000
+   },
+   {
+    "symbol": "GEMI-FED261211-HIKEGT25",
+    "label": "Hike >25bps",
+    "ticker": "HIKEGT25",
+    "open": true,
+    "expiry": "2026-12-11T05:00:00.000Z",
+    "yesBid": 80000,
+    "yesAsk": 130000,
+    "last": 120000
+   },
+   {
+    "symbol": "GEMI-FED261211-MAINTAIN",
+    "label": "Fed maintains rate",
+    "ticker": "MAINTAIN",
+    "open": true,
+    "expiry": "2026-12-11T05:00:00.000Z",
+    "yesBid": 50000,
+    "yesAsk": 50000,
+    "last": 50000
+   },
+   {
+    "symbol": "GEMI-FED261211-CUTGT25",
+    "label": "Cut >25bps",
+    "ticker": "CUTGT25",
+    "open": true,
+    "expiry": "2026-12-11T05:00:00.000Z",
+    "yesBid": 30000,
+    "yesAsk": 30000,
+    "last": 30000
+   },
+   {
+    "symbol": "GEMI-FED261211-CUT25",
+    "label": "Cut 25bps",
+    "ticker": "CUT25",
+    "open": true,
+    "expiry": "2026-12-11T05:00:00.000Z",
+    "yesBid": 20000,
+    "yesAsk": 20000,
+    "last": 20000
+   }
+  ]
+ },
+ {
+  "id": "459961",
+  "ticker": "WXHIGH-SAT-2611160459",
+  "title": "Highest temperature in San Antonio on November 15, 2026?",
+  "slug": "highest-temperature-in-san-antonio-on-november-15-2026",
+  "category": "Weather",
+  "status": "active",
+  "expiry": "2026-11-16T04:59:59.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/San_Antonio_887f987e-6f73-4796-9010-f4d43c33f547.avif",
+  "volume": 104,
+  "volume24h": 104,
+  "contractCount": 6,
+  "contracts": [
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-LO66",
+    "label": "66\u00b0F or below",
+    "ticker": "LO66",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 870000,
+    "yesAsk": 920000,
+    "last": 680000
+   },
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-67TO68",
+    "label": "67\u00b0F to 68\u00b0F",
+    "ticker": "67TO68",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 40000,
+    "yesAsk": 90000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-69TO70",
+    "label": "69\u00b0F to 70\u00b0F",
+    "ticker": "69TO70",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 20000,
+    "yesAsk": 60000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-71TO72",
+    "label": "71\u00b0F to 72\u00b0F",
+    "ticker": "71TO72",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": null,
+    "yesAsk": 20000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-73TO74",
+    "label": "73\u00b0F to 74\u00b0F",
+    "ticker": "73TO74",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": null,
+    "yesAsk": 20000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-SAT-2611160459-HI75",
+    "label": "75\u00b0F or above",
+    "ticker": "HI75",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 10000,
+    "yesAsk": 20000,
+    "last": 30000
+   }
+  ]
+ },
+ {
+  "id": "461873",
+  "ticker": "COPPER2611152200",
+  "title": "Copper price on November 15?",
+  "slug": "copper-price-on-november-15",
+  "category": "Commodities",
+  "status": "active",
+  "expiry": "2026-11-15T22:00:00.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/Copper_1_5618a4f3-2d12-4108-8d06-0fa626a34126.avif",
+  "volume": 8,
+  "volume24h": 8,
+  "contractCount": 7,
+  "contracts": [
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D06",
+    "label": "$6.06 or above",
+    "ticker": "HI6D06",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 670000,
+    "yesAsk": 870000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D08",
+    "label": "$6.08 or above",
+    "ticker": "HI6D08",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 560000,
+    "yesAsk": 760000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D10",
+    "label": "$6.1 or above",
+    "ticker": "HI6D10",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 420000,
+    "yesAsk": 620000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D12",
+    "label": "$6.12 or above",
+    "ticker": "HI6D12",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 270000,
+    "yesAsk": 470000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D14",
+    "label": "$6.14 or above",
+    "ticker": "HI6D14",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 200000,
+    "yesAsk": 340000,
+    "last": 200000
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D16",
+    "label": "$6.16 or above",
+    "ticker": "HI6D16",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": 40000,
+    "yesAsk": 240000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-COPPER2611152200-HI6D18",
+    "label": "$6.18 or above",
+    "ticker": "HI6D18",
+    "open": true,
+    "expiry": "2026-11-15T22:00:00.000Z",
+    "yesBid": null,
+    "yesAsk": 180000,
+    "last": null
+   }
+  ]
+ },
+ {
+  "id": "459888",
+  "ticker": "WXHIGH-DEN-2611160459",
+  "title": "Highest temperature in Denver on November 15, 2026?",
+  "slug": "highest-temperature-in-denver-on-november-15-2026",
+  "category": "Weather",
+  "status": "active",
+  "expiry": "2026-11-16T04:59:59.000Z",
+  "imageUrl": "https://assets.gemini.com/predictions/images/Denver_7f34a85d-f5e9-4477-9e9b-cc9e30fe53be.avif",
+  "volume": 100,
+  "volume24h": 100,
+  "contractCount": 6,
+  "contracts": [
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-58TO59",
+    "label": "58\u00b0F to 59\u00b0F",
+    "ticker": "58TO59",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 490000,
+    "yesAsk": 550000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-56TO57",
+    "label": "56\u00b0F to 57\u00b0F",
+    "ticker": "56TO57",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 270000,
+    "yesAsk": 310000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-60TO61",
+    "label": "60\u00b0F to 61\u00b0F",
+    "ticker": "60TO61",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 80000,
+    "yesAsk": 120000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-54TO55",
+    "label": "54\u00b0F to 55\u00b0F",
+    "ticker": "54TO55",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": 60000,
+    "yesAsk": 90000,
+    "last": 110000
+   },
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-LO53",
+    "label": "53\u00b0F or below",
+    "ticker": "LO53",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": null,
+    "yesAsk": 20000,
+    "last": null
+   },
+   {
+    "symbol": "GEMI-WXHIGH-DEN-2611160459-HI62",
+    "label": "62\u00b0F or above",
+    "ticker": "HI62",
+    "open": true,
+    "expiry": "2026-11-16T04:59:59.000Z",
+    "yesBid": null,
+    "yesAsk": 20000,
+    "last": null
+   }
+  ]
+ }
+]

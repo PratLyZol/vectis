@@ -1,0 +1,254 @@
+[
+ {
+  "symbol": "GEMI-CMB-261116-E91E3C202D3FEAF1-CMB",
+  "origin": "gemini",
+  "label": "Utah wins by more than 2.5 points Yes + Wyoming Yes + Calgary Yes",
+  "legs": [
+   {
+    "symbol": "GEMI-NCAAF-2611150030-UTA-ARI-S-UTA2",
+    "outcome": "yes",
+    "label": "Utah wins by more than 2.5 points",
+    "eventTitle": "Utah vs Arizona: Point Spread",
+    "eventTicker": "NCAAF-2611150030-UTA-ARI-S",
+    "expiry": "2026-11-16T03:30:00.000Z",
+    "gameId": "e36015a0-f2a9-4840-b250-d52f04fa87a5",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611150300-WYO-UTE-M-WYO",
+    "outcome": "yes",
+    "label": "Wyoming",
+    "eventTitle": "Wyoming vs UTEP",
+    "eventTicker": "NCAAF-2611150300-WYO-UTE-M",
+    "expiry": "2026-11-16T03:00:00.000Z",
+    "gameId": "c145a78a-fe57-4b62-953d-319e128ba6ab",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NHL-2611150300-CGY-LAK-M-CGY",
+    "outcome": "yes",
+    "label": "Calgary",
+    "eventTitle": "Calgary vs Los Angeles",
+    "eventTicker": "NHL-2611150300-CGY-LAK-M",
+    "expiry": "2026-11-16T15:00:00.000Z",
+    "gameId": "1d0d451d-59be-46e9-87e3-b3f17424ce35",
+    "open": true
+   }
+  ]
+ },
+ {
+  "symbol": "GEMI-CMB-261117-D2C25E954E0E19E0-CMB",
+  "origin": "gemini",
+  "label": "Wyoming Yes + Utah Yes + 2 more",
+  "legs": [
+   {
+    "symbol": "GEMI-NCAAF-2611150300-WYO-UTE-M-WYO",
+    "outcome": "yes",
+    "label": "Wyoming",
+    "eventTitle": "Wyoming vs UTEP",
+    "eventTicker": "NCAAF-2611150300-WYO-UTE-M",
+    "expiry": "2026-11-16T03:00:00.000Z",
+    "gameId": "c145a78a-fe57-4b62-953d-319e128ba6ab",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611150030-UTA-ARI-M-UTA",
+    "outcome": "yes",
+    "label": "Utah",
+    "eventTitle": "Utah vs Arizona",
+    "eventTicker": "NCAAF-2611150030-UTA-ARI-M",
+    "expiry": "2026-11-16T03:30:00.000Z",
+    "gameId": "e36015a0-f2a9-4840-b250-d52f04fa87a5",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611151800-JAX-TEN-M-JAX",
+    "outcome": "yes",
+    "label": "Jacksonville",
+    "eventTitle": "Jacksonville vs Tennessee",
+    "eventTicker": "NFL-2611151800-JAX-TEN-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "f39cb30a-8fc9-4273-9f93-94987d6fbe99",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611152125-SF-DAL-M-SF",
+    "outcome": "yes",
+    "label": "San Francisco",
+    "eventTitle": "San Francisco vs Dallas",
+    "eventTicker": "NFL-2611152125-SF-DAL-M",
+    "expiry": "2026-11-17T09:25:00.000Z",
+    "gameId": "231d7294-7ba0-4b56-9fcf-344026eebcd1",
+    "open": true
+   }
+  ]
+ },
+ {
+  "symbol": "GEMI-CMB-261116-B57584FBEEE904C3-CMB",
+  "origin": "gemini",
+  "label": "Los Angeles Yes + Arizona Yes",
+  "legs": [
+   {
+    "symbol": "GEMI-NHL-2611150300-CGY-LAK-M-LAK",
+    "outcome": "yes",
+    "label": "Los Angeles",
+    "eventTitle": "Calgary vs Los Angeles",
+    "eventTicker": "NHL-2611150300-CGY-LAK-M",
+    "expiry": "2026-11-16T15:00:00.000Z",
+    "gameId": "1d0d451d-59be-46e9-87e3-b3f17424ce35",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611150030-UTA-ARI-M-ARI",
+    "outcome": "yes",
+    "label": "Arizona",
+    "eventTitle": "Utah vs Arizona",
+    "eventTicker": "NCAAF-2611150030-UTA-ARI-M",
+    "expiry": "2026-11-16T03:30:00.000Z",
+    "gameId": "e36015a0-f2a9-4840-b250-d52f04fa87a5",
+    "open": true
+   }
+  ]
+ },
+ {
+  "symbol": "GEMI-CMB-261117-30B7CAF3F209807C-CMB",
+  "origin": "gemini",
+  "label": "Kansas City Yes + Buffalo Yes + 2 more",
+  "legs": [
+   {
+    "symbol": "GEMI-NFL-2611151800-KC-ATL-M-KC",
+    "outcome": "yes",
+    "label": "Kansas City",
+    "eventTitle": "Kansas City vs Atlanta",
+    "eventTicker": "NFL-2611151800-KC-ATL-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "6b55ac0d-b893-49c1-93ee-6c8ddbd1a9a5",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611151800-BUF-NYJ-M-BUF",
+    "outcome": "yes",
+    "label": "Buffalo",
+    "eventTitle": "Buffalo vs New York J",
+    "eventTicker": "NFL-2611151800-BUF-NYJ-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "ab29f769-e10f-4ec1-ab58-b580ed349acb",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611151800-JAX-TEN-M-JAX",
+    "outcome": "yes",
+    "label": "Jacksonville",
+    "eventTitle": "Jacksonville vs Tennessee",
+    "eventTicker": "NFL-2611151800-JAX-TEN-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "f39cb30a-8fc9-4273-9f93-94987d6fbe99",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611151800-CAR-NO-M-CAR",
+    "outcome": "yes",
+    "label": "Carolina",
+    "eventTitle": "Carolina vs New Orleans",
+    "eventTicker": "NFL-2611151800-CAR-NO-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "d1f39b82-ec7c-4bb6-9dda-334ebdc3ab92",
+    "open": true
+   }
+  ]
+ },
+ {
+  "symbol": "GEMI-CMB-261122-717DD0B90C6595F8-CMB",
+  "origin": "gemini",
+  "label": "Buffalo Yes + Jacksonville Yes + 2 more",
+  "legs": [
+   {
+    "symbol": "GEMI-NFL-2611151800-BUF-NYJ-M-BUF",
+    "outcome": "yes",
+    "label": "Buffalo",
+    "eventTitle": "Buffalo vs New York J",
+    "eventTicker": "NFL-2611151800-BUF-NYJ-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "ab29f769-e10f-4ec1-ab58-b580ed349acb",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NFL-2611151800-JAX-TEN-M-JAX",
+    "outcome": "yes",
+    "label": "Jacksonville",
+    "eventTitle": "Jacksonville vs Tennessee",
+    "eventTicker": "NFL-2611151800-JAX-TEN-M",
+    "expiry": "2026-11-17T06:00:00.000Z",
+    "gameId": "f39cb30a-8fc9-4273-9f93-94987d6fbe99",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NCAAF-2611210100-ORE-MSU-M-ORE",
+    "outcome": "yes",
+    "label": "Oregon",
+    "eventTitle": "Oregon vs Michigan State",
+    "eventTicker": "NCAAF-2611210100-ORE-MSU-M",
+    "expiry": "2026-11-22T01:00:00.000Z",
+    "gameId": "44cf3771-cf49-4768-96bf-495e2f57baee",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NBA-2611152300-DAL-BOS-M-BOS",
+    "outcome": "yes",
+    "label": "Boston",
+    "eventTitle": "Dallas vs Boston",
+    "eventTicker": "NBA-2611152300-DAL-BOS-M",
+    "expiry": "2026-11-17T11:00:00.000Z",
+    "gameId": "37d1bc3d-93c7-4d03-9823-184322b7f973",
+    "open": true
+   }
+  ]
+ },
+ {
+  "symbol": "GEMI-CMB-261117-C0C98863E91D758F-CMB",
+  "origin": "gemini",
+  "label": "Oklahoma City Yes + Houston Yes + 2 more",
+  "legs": [
+   {
+    "symbol": "GEMI-NBA-2611160200-OKC-SAC-M-OKC",
+    "outcome": "yes",
+    "label": "Oklahoma City",
+    "eventTitle": "Oklahoma City vs Sacramento",
+    "eventTicker": "NBA-2611160200-OKC-SAC-M",
+    "expiry": "2026-11-17T14:00:00.000Z",
+    "gameId": "dd813a3b-1cd7-4f43-831a-f39f81f16b9b",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NBA-2611160000-HOU-WAS-M-HOU",
+    "outcome": "yes",
+    "label": "Houston",
+    "eventTitle": "Houston vs Washington",
+    "eventTicker": "NBA-2611160000-HOU-WAS-M",
+    "expiry": "2026-11-17T12:00:00.000Z",
+    "gameId": "01374173-4679-4fa9-8904-f6a923b7dfd2",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NBA-2611152300-DAL-BOS-M-BOS",
+    "outcome": "yes",
+    "label": "Boston",
+    "eventTitle": "Dallas vs Boston",
+    "eventTicker": "NBA-2611152300-DAL-BOS-M",
+    "expiry": "2026-11-17T11:00:00.000Z",
+    "gameId": "37d1bc3d-93c7-4d03-9823-184322b7f973",
+    "open": true
+   },
+   {
+    "symbol": "GEMI-NBA-2611152200-SAS-UTA-M-SAS",
+    "outcome": "yes",
+    "label": "San Antonio",
+    "eventTitle": "San Antonio vs Utah",
+    "eventTicker": "NBA-2611152200-SAS-UTA-M",
+    "expiry": "2026-11-17T10:00:00.000Z",
+    "gameId": "9130aa45-7dfe-482f-81d6-2920a388032a",
+    "open": true
+   }
+  ]
+ }
+]

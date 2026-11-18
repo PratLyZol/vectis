@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+out/
+dist/
+.vercel/
+.taste-skill/
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+.DS_Store
