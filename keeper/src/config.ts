@@ -27,6 +27,8 @@ export interface Config {
   /** True when no Gemini API key is configured: fills are simulated. */
   mock: boolean;
   marketCount: number;
+  /** Most markets priced because the web app requested them (hedge proposals). */
+  requestCount: number;
   pollMs: number;
   heartbeatMs: number;
   scanEvents: number;
@@ -125,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     geminiApiSecret,
     mock: geminiApiKey === "",
     marketCount: intEnv(env, "KEEPER_MARKET_COUNT", 8, 1),
+    requestCount: intEnv(env, "KEEPER_REQUEST_COUNT", 6, 0),
     pollMs,
     heartbeatMs,
     scanEvents: intEnv(env, "KEEPER_SCAN_EVENTS", 100, 1),

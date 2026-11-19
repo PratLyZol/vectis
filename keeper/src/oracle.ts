@@ -85,6 +85,8 @@ function clampUnit(v: bigint | null): bigint | null {
 
 export class OracleFeed {
   private readonly markets = new Map<Hex, MarketState>();
+  /** Markets in `markets` that are there only because the web app requested them. */
+  private readonly requestedIds = new Set<Hex>();
   private readonly combos = new Map<Hex, ComboState>();
   private readonly books = new Map<string, BookEntry>();
   private readonly bookWarnAt = new Map<string, number>();
@@ -172,6 +174,39 @@ export class OracleFeed {
       if (this.markets.has(marketId)) continue;
       const state: MarketState = { ...m, marketId, registered: false, penaltyUntil: 0, lastWarnAt: 0 };
       this.markets.set(marketId, state);
+      await this.ensureRegistered(state, m.closeTime);
+    }
+  }
+
+  /** Symbols priced for reasons other than a market request: startup markets and combo legs. */
+  baseSymbols(): string[] {
+    const out = new Set<string>();
+    for (const [id, m] of this.markets) if (!this.requestedIds.has(id)) out.add(m.symbol);
+    for (const c of this.combos.values()) for (const leg of c.def.legs) out.add(leg.symbol);
+    return [...out];
+  }
+
+  /**
+   * Replace the set of requested markets: register and start pricing new ones, stop pricing the
+   * ones no longer wanted. Startup markets are never touched; their requests are no-ops.
+   */
+  async syncRequested(list: TrackedMarket[]): Promise<void> {
+    const wanted = new Map<Hex, TrackedMarket>();
+    for (const m of list) wanted.set(marketIdOf(m.symbol), m);
+    for (const id of [...this.requestedIds]) {
+      if (wanted.has(id)) continue;
+      this.requestedIds.delete(id);
+      this.markets.delete(id);
+    }
+    for (const [id, m] of wanted) {
+      if (this.markets.has(id)) {
+        const state = this.markets.get(id)!;
+        if (this.requestedIds.has(id) && !state.registered) await this.ensureRegistered(state, m.closeTime);
+        continue;
+      }
+      const state: MarketState = { ...m, marketId: id, registered: false, penaltyUntil: 0, lastWarnAt: 0 };
+      this.markets.set(id, state);
+      this.requestedIds.add(id);
       await this.ensureRegistered(state, m.closeTime);
     }
   }
