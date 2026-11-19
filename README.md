@@ -81,6 +81,25 @@ the `X-QN-Signature` HMAC, decodes the events and stores them idempotently in Po
 backfills from the deploy block, so the feed holds the full history. `/api/activity` serves the
 feed to the UI and to the keeper, which uses it as its primary trigger and falls back to RPC polling.
 
+### Hedge agent
+
+`/hedge` turns a plain-English description of any exposure into proposed positions. The exposure
+can be a position (long or short), a loan, a business cost or revenue, or a holding in any market.
+The holder can be anyone, from a laundromat paying for natural gas to a fund short copper miners.
+`/api/hedge` runs a tool loop on Venice AI (OpenAI-compatible, through the `openai` client). The
+tools are read-only: list categories, search markets, read an event, read the book and preview a
+position. The model ends by asking one clarifying question or by calling `propose_hedge`. Each
+proposed leg is direct or a proxy (for example cold-weather or Brent buckets as a stand-in for
+natural gas) and comes with a rationale and a basis-risk note.
+
+The server checks every leg against fresh Gemini data before it reaches the browser
+(`web/src/lib/hedge/validate.ts`): the symbol must exist and be open, prices are recomputed, and
+leverage is clamped to the contract's `maxLeverage`. The user can edit side, margin and leverage,
+remove legs, or ask the agent to revise. The positions open only after a review step with an
+explicit acknowledgement. If any price moves by more than 3 cents before the user confirms, the
+review must be confirmed again. `useOpenBatch` then sends one USDC approval and opens the legs in
+order. If a leg fails, the user can retry the legs that remain.
+
 ## Repository layout
 
 ```
@@ -175,8 +194,10 @@ Root `.env` (git-ignored; see `.env.example`):
 | `QUICKNODE_API_KEY` | scripts | Creates and manages the stream |
 | `QN_STREAM_SECURITY_TOKEN` | scripts, web | Webhook signing secret |
 | `DATABASE_URL` | web | Neon Postgres (stream events, combo registry) |
+| `VENICE_API_KEY`, `VENICE_MODEL` | web | Hedge agent. Without the key `/api/hedge` returns 503. The model defaults to `kimi-k3` and must support function calling |
 
-Vercel (production, server only): `GEMINI_PUBLIC_BASE`, `DATABASE_URL`, `QN_STREAM_SECURITY_TOKEN`.
+Vercel (production, server only): `GEMINI_PUBLIC_BASE`, `DATABASE_URL`, `QN_STREAM_SECURITY_TOKEN`,
+`VENICE_API_KEY` (and optionally `VENICE_MODEL`).
 No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
 
 ## Known limits
@@ -227,10 +248,12 @@ No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
 | `/portfolio` | Your positions, with distance to liquidation |
 | `/vault` | Deposit and withdraw USDC as a lender |
 | `/lend` | Lender entry point: how lenders earn, the risks, live vault numbers, first deposit |
+| `/hedge` | Hedge agent: describe an exposure, edit the proposed legs, then confirm to open them |
 | `/replay` | Replay a hypothetical leveraged position on a market's real one-minute Gemini price history, to a gain or a liquidation. Uses the contract rules for leverage cap, fee and liquidation price. Five histories are saved in `web/src/lib/fixtures-replays.json` so they replay after Gemini drops them; any live market replays from its page. Entries and exits use bar closes with no spread, and the final-hour step-down is not modelled |
 | `/api/markets`, `/api/markets/[ticker]`, `/api/book/[symbol]` | Cached server-side proxies for Gemini public data |
 | `/api/combos`, `/api/combos/[symbol]` | Combo list, registry and leg-derived prices |
 | `/api/qn-stream`, `/api/activity` | QuickNode Streams webhook and the event feed |
+| `/api/hedge` | Hedge agent (POST): conversation in, a question or a validated proposal out |
 
 With zero addresses in `web/src/config/addresses.ts` every page runs on demo data.
 
