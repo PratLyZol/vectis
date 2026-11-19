@@ -17,3 +17,12 @@ export function veniceClient(): OpenAI | null {
 }
 
 export const veniceModel = () => process.env.VENICE_MODEL || DEFAULT_VENICE_MODEL;
+
+const EFFORTS = ["low", "medium", "high"] as const;
+type Effort = (typeof EFFORTS)[number];
+// Reasoning models spend most of each step thinking; "low" keeps a full search-and-size loop
+// inside the route's time budget. Override with VENICE_REASONING_EFFORT.
+export const veniceReasoningEffort = (): Effort => {
+  const v = process.env.VENICE_REASONING_EFFORT as Effort | undefined;
+  return v && EFFORTS.includes(v) ? v : "low";
+};

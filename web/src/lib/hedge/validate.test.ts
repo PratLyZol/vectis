@@ -40,10 +40,7 @@ const leg = (over: Record<string, unknown>) => ({
   side: "yes",
   margin_usdc: 50,
   leverage: 1,
-  rationale: "r",
-  hedge_mechanism: "m",
-  basis_risk: "proxy",
-  basis_risk_note: "n",
+  basis: "proxy",
   ...over,
 });
 
@@ -59,10 +56,10 @@ describe("clampLeverage", () => {
 
 describe("buildProposal", () => {
   it("keeps a valid leg and recomputes price and max leverage from market data", () => {
-    const p = build({ summary: "s", legs: [leg({ leverage: 2 })] });
+    const p = build({ legs: [leg({ leverage: 2 })] });
     expect(p.legs).toHaveLength(1);
     expect(p.legs[0]!).toMatchObject({ symbol: "B-91", side: "yes", price: usd(0.6), leverage: 20, maxLeverage: 50, margin: usd(50) });
-    expect(p.warnings).toEqual([]);
+    expect(p.notes).toEqual([]);
   });
 
   it("prices a No leg from the Yes bid", () => {
@@ -74,7 +71,7 @@ describe("buildProposal", () => {
     const p = build({ legs: [leg({ symbol: "F-HOLD", event_ticker: "FED", leverage: 5 })] });
     // 0.32 / 0.12 = 2.66 -> 2.5x
     expect(p.legs[0]!.leverage).toBe(25);
-    expect(p.warnings.some((w) => w.includes("2.5x"))).toBe(true);
+    expect(p.notes.some((w) => w.includes("2.5x"))).toBe(true);
   });
 
   it("forces 1x inside the final hour before close", () => {
@@ -87,7 +84,7 @@ describe("buildProposal", () => {
       legs: [leg({ symbol: "NOPE" }), leg({ symbol: "B-95" }), leg({ symbol: "B-99", side: "no" })],
     });
     expect(p.legs).toHaveLength(0);
-    expect(p.warnings).toHaveLength(3);
+    expect(p.notes).toHaveLength(3);
   });
 
   it("finds a symbol paired with the wrong event", () => {
@@ -112,7 +109,7 @@ describe("buildProposal", () => {
   });
 
   it("warns when there are no legs at all", () => {
-    expect(build({ summary: "nothing", legs: [] }).warnings[0]).toMatch(/No listed market/);
+    expect(build({ legs: [] }).notes[0]).toMatch(/No listed market/);
   });
 
   it("keeps only scenario winners that are legs", () => {
@@ -120,9 +117,15 @@ describe("buildProposal", () => {
     expect(p.scenarios[0]!.winningSymbols).toEqual(["B-91"]);
   });
 
-  it("falls back on unknown enum values in the exposure", () => {
-    const p = build({ exposure: { holder_type: "whale", direction: "sideways", adverse_move: "gas up", notional_usd: -5 } });
-    expect(p.exposure).toMatchObject({ holderType: "other", direction: "long", adverseMove: "gas up", notionalUsd: null });
+  it("keeps the agent's note and the hedging-against line", () => {
+    const p = build({ hedging_against: "Gas prices rising", legs: [], note: "No FX markets are listed." });
+    expect(p.hedgingAgainst).toBe("Gas prices rising");
+    expect(p.notes).toEqual(["No FX markets are listed."]);
+  });
+
+  it("marks a leg direct only when the agent says so", () => {
+    expect(build({ legs: [leg({ basis: "direct" })] }).legs[0]!.basisRisk).toBe("direct");
+    expect(build({ legs: [leg({ basis: "maybe" })] }).legs[0]!.basisRisk).toBe("proxy");
   });
 });
 
@@ -134,7 +137,7 @@ describe("pnl figures", () => {
     expect(legPnl(l, false)).toBe(BigInt(-usd(60)));
   });
   it("sums scenarios and totals", () => {
-    expect(scenarioPnl([l], { name: "s", description: "", winningSymbols: ["B-91"] })).toBe(BigInt(usd(40)));
+    expect(scenarioPnl([l], { name: "s", winningSymbols: ["B-91"] })).toBe(BigInt(usd(40)));
     expect(proposalTotals([l]).total).toBe(BigInt(usd(60)));
   });
 });

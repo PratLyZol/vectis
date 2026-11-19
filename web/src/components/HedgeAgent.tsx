@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import type { HedgeMessage, HedgeProposal as Proposal, HedgeResponse } from "@/lib/types";
+import { fmtLeverage, fmtPrice, fmtUsdc } from "@/lib/format";
+import type { HedgeLeg, HedgeMessage, HedgeProposal as Proposal, HedgeResponse } from "@/lib/types";
 import { HedgeProposal } from "./HedgeProposal";
 
 const EXAMPLES = [
@@ -13,9 +14,38 @@ const EXAMPLES = [
 
 const MAX_HISTORY = 16;
 
+// A conversation turn. Proposal turns keep a snapshot of the legs so the thread shows them as
+// positions; `content` is the short text the model sees as its own earlier reply.
+type Turn = HedgeMessage & { legs?: HedgeLeg[] };
+
+function ProposalTurn({ legs }: { legs: HedgeLeg[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[12px] text-muted">
+        {legs.length ? `Earlier proposal · ${legs.length} position${legs.length === 1 ? "" : "s"}` : "No matching market found"}
+      </p>
+      {legs.length ? (
+        <ul className="flex flex-col divide-y divide-border">
+          {legs.map((l) => (
+            <li key={`${l.symbol}:${l.side}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-[14px]">
+              <span className={`font-medium ${l.side === "yes" ? "text-text" : "text-danger"}`}>{l.side === "yes" ? "Yes" : "No"}</span>
+              <span className="min-w-0 flex-1 text-text">
+                {l.eventTitle} <span className="text-muted">· {l.label}</span>
+              </span>
+              <span className="num text-text-2">
+                ${fmtUsdc(BigInt(l.margin))} · {fmtLeverage(l.leverage)} · {fmtPrice(l.price)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function HedgeAgent() {
   const uid = useId();
-  const [messages, setMessages] = useState<HedgeMessage[]>([]);
+  const [messages, setMessages] = useState<Turn[]>([]);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -37,7 +67,7 @@ export function HedgeAgent() {
       const res = await fetch("/api/hedge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next, proposal }),
+        body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), proposal }),
         signal: ctrl.signal,
       });
       const data = (await res.json().catch(() => null)) as HedgeResponse | null;
@@ -47,11 +77,12 @@ export function HedgeAgent() {
         setMessages((m) => [...m, { role: "assistant", content: data.question }]);
       } else {
         setProposal(data.proposal);
-        const n = data.proposal.legs.length;
-        setMessages((m) => [
-          ...m,
-          { role: "assistant", content: `Proposed ${n} leg${n === 1 ? "" : "s"}. ${data.proposal.summary}`.slice(0, 1800) },
-        ]);
+        const { legs } = data.proposal;
+        // What the model sees as its earlier reply; the thread shows the legs, not this text.
+        const content = legs.length
+          ? `Proposed: ${legs.map((l) => `${l.side} ${l.eventTitle}: ${l.label}, ${fmtUsdc(BigInt(l.margin))} USDC at ${fmtLeverage(l.leverage)}`).join("; ")}`
+          : `Proposed no legs. ${data.proposal.notes[0] ?? ""}`;
+        setMessages((m) => [...m, { role: "assistant", content: content.slice(0, 1800), legs }]);
       }
     } catch (e) {
       if (ctrl.signal.aborted) return;
@@ -74,32 +105,38 @@ export function HedgeAgent() {
   };
 
   const started = messages.length > 0;
+  const lastProposal = messages.findLastIndex((m) => m.legs !== undefined);
   const placeholder = proposal
-    ? "Ask for a change, e.g. 'make it cheaper' or 'drop the oil leg'"
+    ? "e.g. make it cheaper, or drop the oil leg"
     : "Describe what you want to protect against: what you hold or pay, how much, and your budget for the hedge.";
 
   return (
     <div className="mt-8 flex flex-col gap-6">
       {started ? (
         <ol className="flex flex-col gap-3" aria-label="Conversation" aria-live="polite">
-          {messages.map((m, i) => (
+          {messages.map((m, i) =>
+            // The current proposal renders in full below the thread.
+            m.legs && i === lastProposal && proposal ? null : (
             <li
               key={i}
-              className={`max-w-[72ch] whitespace-pre-wrap rounded-md px-4 py-3 text-[15px] ${
+              className={`${m.legs ? "w-full" : "whitespace-pre-wrap"} max-w-[72ch] rounded-md px-4 py-3 text-[15px] ${
                 m.role === "user" ? "self-end bg-raised" : "self-start border border-border text-text-2"
               }`}
             >
               <span className="sr-only">{m.role === "user" ? "You: " : "Agent: "}</span>
-              {m.content}
+              {m.legs ? <ProposalTurn legs={m.legs} /> : m.content}
             </li>
-          ))}
+            ),
+          )}
           {loading ? (
             <li className="self-start px-4 py-3 text-[15px] text-muted" role="status">
-              Searching markets and sizing the hedge…
+              Finding markets…
             </li>
           ) : null}
         </ol>
       ) : null}
+
+      {proposal ? <HedgeProposal key={proposal.quotedAt} proposal={proposal} onChange={setProposal} locked={loading} /> : null}
 
       <form
         className="card flex flex-col gap-3 p-4 md:p-6"
@@ -113,7 +150,8 @@ export function HedgeAgent() {
         </label>
         <textarea
           id={`${uid}-q`}
-          className="field min-h-[96px] py-3"
+          className={`field py-3 ${proposal ? "min-h-[56px]" : "min-h-[96px]"}`}
+          rows={proposal ? 2 : 4}
           value={input}
           maxLength={2000}
           placeholder={placeholder}
@@ -130,7 +168,7 @@ export function HedgeAgent() {
             <p className="text-[12px] text-muted">Examples</p>
             <div className="flex flex-wrap gap-2">
               {EXAMPLES.map((ex) => (
-                <button key={ex} type="button" className="btn btn-secondary h-auto px-3 py-2 text-left text-[13px]" onClick={() => setInput(ex)}>
+                <button key={ex} type="button" className="btn btn-secondary h-auto max-w-full whitespace-normal px-3 py-2 text-left text-[13px]" onClick={() => setInput(ex)}>
                   {ex}
                 </button>
               ))}
@@ -154,12 +192,6 @@ export function HedgeAgent() {
         ) : null}
       </form>
 
-      {proposal ? <HedgeProposal key={proposal.quotedAt} proposal={proposal} onChange={setProposal} locked={loading} /> : null}
-
-      <p className="max-w-[72ch] text-[12px] text-muted">
-        The hedge agent suggests positions from listed Gemini markets. It is not investment advice. Prediction-market hedges pay in
-        discrete outcomes over short horizons and rarely offset a real exposure exactly. Review every leg before you confirm.
-      </p>
     </div>
   );
 }

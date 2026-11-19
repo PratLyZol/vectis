@@ -4,12 +4,12 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { runHedgeAgent } from "@/lib/hedge/agent.server";
-import { veniceClient, veniceModel } from "@/lib/hedge/venice.server";
+import { veniceClient, veniceModel, veniceReasoningEffort } from "@/lib/hedge/venice.server";
 import type { HedgeMessage, HedgeProposal, HedgeResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90; // above AGENT_DEADLINE_MS (75s)
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGES = 16;
@@ -36,7 +36,7 @@ function parseMessages(v: unknown): HedgeMessage[] | null {
 function parseProposal(v: unknown): HedgeProposal | null {
   if (typeof v !== "object" || v === null) return null;
   const p = v as Partial<HedgeProposal>;
-  return Array.isArray(p.legs) && typeof p.exposure === "object" && p.exposure !== null ? (p as HedgeProposal) : null;
+  return Array.isArray(p.legs) ? (p as HedgeProposal) : null;
 }
 
 export async function POST(req: Request) {
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   if (!messages) return json({ type: "error", error: "Send 1-16 messages ending with a user message." }, 400);
 
   try {
-    const result = await runHedgeAgent({ messages, proposal: parseProposal(body.proposal) }, { client, model: veniceModel() });
+    const result = await runHedgeAgent({ messages, proposal: parseProposal(body.proposal) }, { client, model: veniceModel(), reasoningEffort: veniceReasoningEffort() });
     return json(result, result.type === "error" ? 502 : 200);
   } catch (e) {
     if (e instanceof OpenAI.RateLimitError) return json({ type: "error", error: "The AI provider is rate limiting. Try again shortly." }, 429);

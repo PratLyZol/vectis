@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import OpenAI from "openai";
 import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { MAX_STEPS, runHedgeAgent, type MarketData } from "./agent.server";
 import type { MarketEvent } from "../types";
@@ -69,16 +70,10 @@ function mockClient(replies: Reply[]) {
 }
 
 const proposeArgs = {
-  summary: "Buy Brent upside",
-  exposure: { holder_type: "small_business", description: "gas bill", instrument_class: "operating_cost", direction: "cost", notional_usd: 900, horizon: "1 month", adverse_move: "gas up" },
-  horizon_note: "short-dated",
-  legs: [{ event_ticker: "BRENT", symbol: "B-91", side: "yes", margin_usdc: 60, leverage: 1, rationale: "r", hedge_mechanism: "m", basis_risk: "proxy", basis_risk_note: "n" }],
-  scenarios: [{ name: "Spike", description: "", winning_symbols: ["B-91"] }],
-  warnings: [],
+  hedging_against: "Natural gas prices rising",
+  legs: [{ event_ticker: "BRENT", symbol: "B-91", side: "yes", margin_usdc: 60, leverage: 1, basis: "proxy" }],
+  scenarios: [{ name: "Spike", winning_symbols: ["B-91"] }],
 };
-
-
-
 
 describe("runHedgeAgent", () => {
   it("runs data tools, then returns a validated proposal", async () => {
@@ -127,6 +122,23 @@ describe("runHedgeAgent", () => {
     expect(r.type).toBe("error");
   });
 
+  it("returns the out-of-time error when a model call times out, and bounds each call", async () => {
+    const opts: { timeout?: number }[] = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (_p: unknown, o?: { timeout?: number }) => {
+            opts.push(o ?? {});
+            throw new OpenAI.APIConnectionTimeoutError();
+          },
+        },
+      },
+    };
+    const r = await runHedgeAgent({ messages: [{ role: "user", content: "x" }] }, { client, model: "m", data, now: () => NOW, deadlineMs: 20_000 });
+    expect(r).toEqual({ type: "error", error: expect.stringContaining("ran out of time") });
+    expect(opts[0]!.timeout).toBeLessThanOrEqual(20_000);
+  });
+
   it("includes the edited proposal as context for a refinement", async () => {
     const { client, seen } = mockClient([{ calls: [{ name: "ask_user", args: { question: "ok?" } }] }]);
     const first = await runHedgeAgent(
@@ -140,6 +152,7 @@ describe("runHedgeAgent", () => {
     );
     const last = seen[0]!.messages.at(-1);
     expect(String(last?.content)).toContain("current proposal");
+    expect(String(last?.content)).toContain("Natural gas prices rising");
     expect(String(last?.content)).toContain("make it cheaper");
   });
 

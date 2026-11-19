@@ -2,7 +2,7 @@
 // description of any exposure into proposed prediction-market positions. It runs a tool loop
 // against Venice AI (OpenAI-compatible chat completions) over read-only Gemini market data, and
 // ends when the model calls `ask_user` or `propose_hedge`. Nothing here touches the chain.
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import type {
   ChatCompletion,
   ChatCompletionCreateParamsNonStreaming,
@@ -25,6 +25,13 @@ import type {
 import { buildProposal, clampLeverage, contractAsk } from "./validate";
 
 export const MAX_STEPS = 10;
+/** Wall-clock budget for the whole loop; the route's maxDuration leaves headroom above it. */
+export const AGENT_DEADLINE_MS = 75_000;
+const MIN_CALL_MS = 5_000;
+const OUT_OF_TIME: HedgeResponse = {
+  type: "error",
+  error: "The agent ran out of time before proposing a hedge. Try a more specific request.",
+};
 const MAX_TOOL_RESULT_CHARS = 24_000;
 
 export type MarketData = {
@@ -36,12 +43,17 @@ export type MarketData = {
 export const geminiData: MarketData = { getMarkets, getEvent, getBook };
 
 export type ChatClient = {
-  chat: { completions: { create: (params: ChatCompletionCreateParamsNonStreaming) => Promise<ChatCompletion> } };
+  chat: {
+    completions: {
+      create: (params: ChatCompletionCreateParamsNonStreaming, options?: { timeout?: number; maxRetries?: number }) => Promise<ChatCompletion>;
+    };
+  };
 };
 
 export type AgentDeps = {
   client: ChatClient | OpenAI;
   model: string;
+  reasoningEffort?: "low" | "medium" | "high";
   data?: MarketData;
   now?: () => Date;
   deadlineMs?: number; // wall-clock budget for the whole loop
@@ -56,16 +68,16 @@ export function systemPrompt(now: Date): string {
 Anyone may ask you for a hedge: individuals, small businesses, funds, VCs, firms. The exposure can be anything: long or short positions in any market, crypto, equities, commodities, business costs or revenues, loans and leverage, real assets, FX, rates, events. Your job is to find Gemini positions whose payoff rises when the thing that hurts the user happens, and propose them.
 
 Process:
-1. Work out the exposure: who holds it, what instrument class, direction (long / short / cost / revenue / liability), notional size, horizon, and the ADVERSE MOVE (the outcome that hurts them).
-2. If the notional or hedge budget, the direction, or a detail that decides which market fits (a city for weather, which asset, the horizon) is missing and cannot be reasonably assumed, call ask_user with ONE short question. Ask at most once per conversation; afterwards, assume sensible defaults and state them as warnings.
-3. Explore what exists. Call list_categories first, then search_markets with short keywords (one or two words, e.g. "oil", "ETH", "Fed", "temperature", "copper") and get_event for the full contract ladder of promising events. Only the listed markets exist; never invent tickers or symbols.
-4. Choose legs. Prefer direct hedges (a market on the exposure itself: an ETH-price bucket for an ETH holder, a Fed-decision market for a floating-rate loan). If none exists, use proxies with a clear causal chain (cold-temperature buckets in the user's region -> heating demand -> natural gas prices; high Brent buckets -> energy costs; copper buckets for miners) and say exactly why they can fail (basis risk).
-   - Long exposures are hedged with legs that pay on the downside (No on "X or above", or Yes on "X or below").
-   - Short positions, costs and liabilities are hedged with legs that pay on the upside.
-5. Size the hedge. Total cost (margin plus open fees) must fit the stated budget; if there is no budget, target a modest hedge ratio of the notional and keep it small. For large sizes, call get_book and keep each leg within what the ask side can fill; say how much exposure stays unhedged.
-6. Leverage is your choice, from 1x up to the leg's max (preview_position reports it; it is lower for cheap contracts and 1x in the final hour before close). Liquidation defeats a hedge, so prefer 1x and justify anything higher with its liquidation price.
-7. Call preview_position for every leg you intend to propose, then call propose_hedge. Include 2-3 scenarios (the adverse move happens / base case / favourable move) listing which leg symbols pay out in each.
-8. Be honest: Gemini markets are short-dated and pay in discrete buckets, so a hedge is never exact. Note any horizon mismatch in horizon_note. If nothing on Gemini relates, call propose_hedge with no legs and explain in warnings.
+1. Work out the exposure: what it is, its direction (long / short / cost / revenue / liability), its size, its horizon and the ADVERSE MOVE (the outcome that hurts the user).
+2. If the budget or size, the direction, or a detail that decides which market fits (a city for weather, which asset) is missing and cannot be reasonably assumed, call ask_user with ONE short question. Ask at most once per conversation; afterwards assume sensible defaults.
+3. Explore what exists: list_categories, then search_markets with short keywords (e.g. "oil", "ETH", "Fed", "gas", "copper"), then get_event for the contract ladder of promising events. Only listed markets exist; never invent tickers or symbols.
+4. Choose legs. Prefer direct markets (an ETH-price bucket for an ETH holder, a Fed-decision market for a floating-rate loan); otherwise use proxies with a clear causal link (cold temperatures -> heating demand -> gas; Brent -> energy costs).
+   - Long exposures: legs that pay on the downside (No on "X or above", Yes on "X or below").
+   - Short positions, costs and liabilities: legs that pay on the upside.
+   - Prefer expiries that match the exposure's horizon.
+5. Size: total cost (margin plus open fees) fits the budget; with no budget, keep it a modest share of the exposure. For large sizes, call get_book and keep each leg within what the ask side can fill.
+6. Leverage: from 1x to the leg's max (preview_position reports it with exact cost; the server also enforces it). Liquidation defeats a hedge, so use 1x unless the budget forces otherwise.
+7. Call propose_hedge. Its fields are data only: no explanations, rationales or disclaimers (the UI shows market data and a fixed disclaimer). If nothing listed relates, propose no legs and say why in note.
 
 Always finish by calling ask_user or propose_hedge. Do not reply with plain text.`;
 }
@@ -86,22 +98,13 @@ const legSchema = {
     side: { type: "string", enum: ["yes", "no"] },
     margin_usdc: { type: "number", description: "USDC the user posts as margin (open fee is added on top)." },
     leverage: { type: "number", description: "1 to 5 in 0.5 steps, at most the leg's max leverage." },
-    rationale: { type: "string", description: "Why this leg belongs in the hedge, one or two sentences." },
-    hedge_mechanism: { type: "string", description: "How it pays when the adverse move happens." },
-    basis_risk: { type: "string", enum: ["direct", "proxy"] },
-    basis_risk_note: { type: "string", description: "How the leg can fail to offset the exposure." },
+    basis: {
+      type: "string",
+      enum: ["direct", "proxy"],
+      description: "direct: the market is on the exposure itself. proxy: it moves with the exposure through a causal link.",
+    },
   },
-  required: [
-    "event_ticker",
-    "symbol",
-    "side",
-    "margin_usdc",
-    "leverage",
-    "rationale",
-    "hedge_mechanism",
-    "basis_risk",
-    "basis_risk_note",
-  ],
+  required: ["event_ticker", "symbol", "side", "margin_usdc", "leverage", "basis"],
 };
 
 export const TOOLS: ChatCompletionTool[] = [
@@ -142,43 +145,32 @@ export const TOOLS: ChatCompletionTool[] = [
     properties: { question: { type: "string" } },
     required: ["question"],
   }),
-  fn("propose_hedge", "Submit the hedge proposal. Ends your turn.", {
+  fn("propose_hedge", "Submit the hedge as data. The UI shows each leg with live market data, so add no explanations. Ends your turn.", {
     type: "object",
     properties: {
-      summary: { type: "string", description: "Plain-English summary of the hedge for the user." },
-      exposure: {
-        type: "object",
-        properties: {
-          holder_type: { type: "string", enum: ["individual", "small_business", "fund", "firm", "other"] },
-          description: { type: "string" },
-          instrument_class: {
-            type: "string",
-            enum: ["equity", "crypto", "commodity", "rates_or_loan", "fx", "real_asset", "operating_cost", "revenue", "event", "other"],
-          },
-          direction: { type: "string", enum: ["long", "short", "cost", "revenue", "liability"] },
-          notional_usd: { type: ["number", "null"] },
-          horizon: { type: ["string", "null"] },
-          adverse_move: { type: "string" },
-        },
-        required: ["holder_type", "description", "instrument_class", "direction", "notional_usd", "horizon", "adverse_move"],
+      hedging_against: {
+        type: "string",
+        description: "The adverse move in at most 8 words, e.g. 'Natural gas prices rising' or 'ETH falling below $1,750'.",
       },
-      horizon_note: { type: "string" },
       legs: { type: "array", items: legSchema },
       scenarios: {
         type: "array",
+        description: "2-3 outcomes: the adverse move, the base case, the favourable move.",
         items: {
           type: "object",
           properties: {
-            name: { type: "string" },
-            description: { type: "string" },
-            winning_symbols: { type: "array", items: { type: "string" } },
+            name: { type: "string", description: "At most 4 words, e.g. 'Gas spikes above $4'." },
+            winning_symbols: { type: "array", items: { type: "string" }, description: "Leg symbols that pay out in this outcome." },
           },
-          required: ["name", "description", "winning_symbols"],
+          required: ["name", "winning_symbols"],
         },
       },
-      warnings: { type: "array", items: { type: "string" } },
+      note: {
+        type: "string",
+        description: "Optional, at most 20 words. Only for something the legs cannot show, e.g. why no market fits.",
+      },
     },
-    required: ["summary", "exposure", "horizon_note", "legs", "scenarios", "warnings"],
+    required: ["hedging_against", "legs", "scenarios"],
   }),
 ];
 
@@ -311,8 +303,9 @@ function proposalContext(p: HedgeProposal): string {
     side: l.side,
     margin_usdc: l.margin / 1e6,
     leverage: l.leverage / 10,
+    basis: l.basisRisk,
   }));
-  return `The user's current proposal (they may have edited it; treat it as the starting point and keep what they did not ask to change):\n${JSON.stringify({ summary: p.summary, exposure: p.exposure, legs }).slice(0, 8000)}`;
+  return `The user's current proposal (they may have edited it; treat it as the starting point and keep what they did not ask to change):\n${JSON.stringify({ hedging_against: p.hedgingAgainst, legs }).slice(0, 8000)}`;
 }
 
 async function finalize(raw: Record<string, unknown>, ctx: ToolContext): Promise<HedgeProposal> {
@@ -344,7 +337,7 @@ export async function runHedgeAgent(
   deps: AgentDeps,
 ): Promise<HedgeResponse> {
   const now = deps.now?.() ?? new Date();
-  const deadline = Date.now() + (deps.deadlineMs ?? 50_000);
+  const deadline = Date.now() + (deps.deadlineMs ?? AGENT_DEADLINE_MS);
   const ctx: ToolContext = { data: deps.data ?? geminiData, now, sources: new Set() };
   const client = deps.client as ChatClient;
 
@@ -357,7 +350,8 @@ export async function runHedgeAgent(
 
   let nudged = false;
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (Date.now() > deadline) break;
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_CALL_MS) break;
     const finalStep = step === MAX_STEPS - 1;
     if (finalStep) {
       messages.push({ role: "user", content: "Step limit reached. Call propose_hedge now with your best proposal, or ask_user." });
@@ -368,11 +362,19 @@ export async function runHedgeAgent(
       tools: TOOLS,
       tool_choice: "auto",
       temperature: 0.2,
+      ...(deps.reasoningEffort ? { reasoning_effort: deps.reasoningEffort } : {}),
       // Venice extensions: no Venice persona prompt, no web search (stay on Gemini data), no
       // reasoning text in the reply.
       venice_parameters: { include_venice_system_prompt: false, enable_web_search: "off", strip_thinking_response: true },
     } as ChatCompletionCreateParamsNonStreaming;
-    const res = await client.chat.completions.create(params);
+    let res: ChatCompletion;
+    try {
+      // Never let one model call outlive the loop's budget; retry only when there is time for it.
+      res = await client.chat.completions.create(params, { timeout: remaining, maxRetries: remaining > 40_000 ? 1 : 0 });
+    } catch (e) {
+      if (e instanceof OpenAI.APIConnectionTimeoutError) return OUT_OF_TIME;
+      throw e;
+    }
     const msg = res.choices[0]?.message;
     if (!msg) return { type: "error", error: "The model returned no message." };
 
@@ -418,5 +420,5 @@ export async function runHedgeAgent(
       messages.push({ role: "tool", tool_call_id: call.id, content: clip(JSON.stringify(result)) });
     }
   }
-  return { type: "error", error: "The agent ran out of time before proposing a hedge. Try a more specific request." };
+  return OUT_OF_TIME;
 }

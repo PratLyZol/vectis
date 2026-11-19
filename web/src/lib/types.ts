@@ -45,30 +45,6 @@ export type BookResponse = { source: DataSource; bids: BookLevel[]; asks: BookLe
 // Hedge agent (/api/hedge). USDC amounts and prices are 1e6-scaled integers as plain numbers;
 // leverage is in tenths (10 = 1x), as on-chain.
 
-export type HedgeHolderType = "individual" | "small_business" | "fund" | "firm" | "other";
-export type HedgeInstrumentClass =
-  | "equity"
-  | "crypto"
-  | "commodity"
-  | "rates_or_loan"
-  | "fx"
-  | "real_asset"
-  | "operating_cost"
-  | "revenue"
-  | "event"
-  | "other";
-export type HedgeDirection = "long" | "short" | "cost" | "revenue" | "liability";
-
-export type HedgeExposure = {
-  holderType: HedgeHolderType;
-  description: string;
-  instrumentClass: HedgeInstrumentClass;
-  direction: HedgeDirection;
-  notionalUsd: number | null;
-  horizon: string | null;
-  adverseMove: string; // the move that hurts the holder, e.g. "natural gas prices rise"
-};
-
 export type HedgeLeg = {
   eventTicker: string;
   eventTitle: string;
@@ -82,25 +58,19 @@ export type HedgeLeg = {
   leverage: number; // tenths
   price: number; // side ask 1e6 at quote time
   maxLeverage: number; // tenths at quote time
-  rationale: string;
-  hedgeMechanism: string; // how the leg pays when the adverse move happens
-  basisRisk: "direct" | "proxy";
-  basisRiskNote: string;
+  basisRisk: "direct" | "proxy"; // direct: the market is on the exposure itself
 };
 
 export type HedgeScenario = {
-  name: string;
-  description: string;
+  name: string; // a few words, e.g. "Gas spikes"
   winningSymbols: string[]; // legs (by symbol) that pay out in this scenario
 };
 
 export type HedgeProposal = {
-  summary: string;
-  exposure: HedgeExposure;
-  horizonNote: string;
+  hedgingAgainst: string; // the adverse move, e.g. "Natural gas prices rising"
   legs: HedgeLeg[];
   scenarios: HedgeScenario[];
-  warnings: string[];
+  notes: string[]; // adjustments the server made, and the agent's note when nothing fits
   quotedAt: string; // ISO
   source: DataSource;
 };

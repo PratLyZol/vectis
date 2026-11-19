@@ -24,14 +24,14 @@ through a QuickNode Stream into a live activity feed and back to the keeper.
                                v                v                          |
   Browser  <---->  Web (Next.js on Vercel)     Keeper (Node, runs locally) -+
   wagmi/viem       /api/markets, /api/book       - posts bid/ask to PriceOracle
-     |             /api/combos                   - fills opens/closes, calls recordFill
+     |             /api/combos, /market-requests - fills opens/closes, calls recordFill
      |             /api/qn-stream  <---+         - liquidates and deleverages
      |             /api/activity  ----+|-------> - reads the stream feed for triggers
      |                  |              |
      |                  v              |  signed webhook (HMAC-SHA256)
      |             Neon Postgres       |
      |             stream_events,      +--- QuickNode Stream (Arc testnet, logs dataset,
-     |             combos                   filtered to MarginManager + LendingVault,
+     |             combos, market_requests  filtered to MarginManager + LendingVault,
      |                                      backfilled from the deploy block)
      v                                                    ^
   Arc testnet ------------------------------------------- | contract logs
@@ -88,9 +88,9 @@ can be a position (long or short), a loan, a business cost or revenue, or a hold
 The holder can be anyone, from a laundromat paying for natural gas to a fund short copper miners.
 `/api/hedge` runs a tool loop on Venice AI (OpenAI-compatible, through the `openai` client). The
 tools are read-only: list categories, search markets, read an event, read the book and preview a
-position. The model ends by asking one clarifying question or by calling `propose_hedge`. Each
-proposed leg is direct or a proxy (for example cold-weather or Brent buckets as a stand-in for
-natural gas) and comes with a rationale and a basis-risk note.
+position. The model ends by asking one clarifying question or by calling `propose_hedge`. The
+proposal is data only: what it hedges against, then each leg (market, side, margin, leverage,
+direct or proxy) and named scenarios. The UI shows each leg with live market data, not model prose.
 
 The server checks every leg against fresh Gemini data before it reaches the browser
 (`web/src/lib/hedge/validate.ts`): the symbol must exist and be open, prices are recomputed, and
@@ -99,6 +99,14 @@ remove legs, or ask the agent to revise. The positions open only after a review 
 explicit acknowledgement. If any price moves by more than 3 cents before the user confirms, the
 review must be confirmed again. `useOpenBatch` then sends one USDC approval and opens the legs in
 order. If a leg fails, the user can retry the legs that remain.
+
+The agent can propose any Gemini market, but a leg opens only when the keeper posts a fresh price
+for it. So the hedge page posts its proposed markets to `/api/market-requests` (re-sent every 10
+minutes while the page is open). The keeper polls that list with the combo registry, registers each
+new market on the `PriceOracle` and prices it, usually within a minute. It prices up to
+`KEEPER_REQUEST_COUNT` requested markets (default 6) that fit the price loop's book budget, and stops
+2 hours after the last request unless the market still has an open position. The `market_requests`
+table is created on first use. Without `DATABASE_URL`, development keeps requests in memory.
 
 ## Repository layout
 
@@ -191,13 +199,14 @@ Root `.env` (git-ignored; see `.env.example`):
 | `KEEPER_SYMBOLS`, `KEEPER_SCAN_EVENTS` | keeper | Optional explicit symbols; events scanned at startup |
 | `VECTIS_APP_URL` | keeper, scripts | Deployed web URL: stream feed, combo registry, webhook target |
 | `KEEPER_STREAM_POLL_MS`, `KEEPER_COMBO_POLL_MS`, `KEEPER_COMBO_COUNT` | keeper | Stream feed and combo tuning |
+| `KEEPER_REQUEST_COUNT` | keeper | Most markets priced on request from the web app (hedge proposals), default 6; 0 disables |
 | `QUICKNODE_API_KEY` | scripts | Creates and manages the stream |
 | `QN_STREAM_SECURITY_TOKEN` | scripts, web | Webhook signing secret |
-| `DATABASE_URL` | web | Neon Postgres (stream events, combo registry) |
-| `VENICE_API_KEY`, `VENICE_MODEL` | web | Hedge agent. Without the key `/api/hedge` returns 503. The model defaults to `kimi-k3` and must support function calling |
+| `DATABASE_URL` | web | Neon Postgres (stream events, combo registry, market requests) |
+| `VENICE_API_KEY`, `VENICE_MODEL`, `VENICE_REASONING_EFFORT` | web | Hedge agent. Without the key `/api/hedge` returns 503. The model defaults to `kimi-k3` and must support function calling; reasoning effort defaults to `low` |
 
 Vercel (production, server only): `GEMINI_PUBLIC_BASE`, `DATABASE_URL`, `QN_STREAM_SECURITY_TOKEN`,
-`VENICE_API_KEY` (and optionally `VENICE_MODEL`).
+`VENICE_API_KEY` (and optionally `VENICE_MODEL`, `VENICE_REASONING_EFFORT`).
 No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
 
 ## Known limits

@@ -17,10 +17,6 @@ import {
 import { unixSeconds } from "../format";
 import type {
   DataSource,
-  HedgeDirection,
-  HedgeExposure,
-  HedgeHolderType,
-  HedgeInstrumentClass,
   HedgeLeg,
   HedgeProposal,
   HedgeScenario,
@@ -30,22 +26,7 @@ import type {
 
 export const MAX_LEGS = 6;
 export const MAX_SCENARIOS = 4;
-const MAX_TEXT = 600;
-
-const HOLDER_TYPES: HedgeHolderType[] = ["individual", "small_business", "fund", "firm", "other"];
-const INSTRUMENT_CLASSES: HedgeInstrumentClass[] = [
-  "equity",
-  "crypto",
-  "commodity",
-  "rates_or_loan",
-  "fx",
-  "real_asset",
-  "operating_cost",
-  "revenue",
-  "event",
-  "other",
-];
-const DIRECTIONS: HedgeDirection[] = ["long", "short", "cost", "revenue", "liability"];
+const MAX_TEXT = 200;
 
 type Raw = Record<string, unknown>;
 const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -54,8 +35,6 @@ const finite = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[$,\s]/g, "")) : Number.NaN;
   return Number.isFinite(n) ? n : null;
 };
-const pick = <T extends string>(v: unknown, allowed: T[], fallback: T): T =>
-  typeof v === "string" && (allowed as string[]).includes(v) ? (v as T) : fallback;
 
 // ---------------------------------------------------------------------------------------------
 // Figures shared by the server and the editor.
@@ -123,20 +102,6 @@ function findContract(events: MarketEvent[], ticker: string, symbol: string) {
   return null;
 }
 
-function parseExposure(raw: unknown): HedgeExposure {
-  const r = isObj(raw) ? raw : {};
-  const notional = finite(r.notional_usd);
-  return {
-    holderType: pick(r.holder_type, HOLDER_TYPES, "other"),
-    description: text(r.description),
-    instrumentClass: pick(r.instrument_class, INSTRUMENT_CLASSES, "other"),
-    direction: pick(r.direction, DIRECTIONS, "long"),
-    notionalUsd: notional !== null && notional > 0 ? notional : null,
-    horizon: text(r.horizon, 120) || null,
-    adverseMove: text(r.adverse_move, 200),
-  };
-}
-
 export type BuildInput = {
   raw: unknown; // propose_hedge arguments, already JSON-parsed
   events: MarketEvent[]; // full events (all contracts) for every ticker the legs reference
@@ -147,9 +112,9 @@ export type BuildInput = {
 
 export function buildProposal({ raw, events, nowSeconds, source, quotedAt }: BuildInput): HedgeProposal {
   const r = isObj(raw) ? raw : {};
-  const warnings: string[] = Array.isArray(r.warnings)
-    ? r.warnings.map((w) => text(w, 300)).filter(Boolean).slice(0, 8)
-    : [];
+  const warnings: string[] = [];
+  const note = text(r.note, 200);
+  if (note) warnings.push(note);
   const legs: HedgeLeg[] = [];
   const seen = new Set<string>();
   const rawLegs = Array.isArray(r.legs) ? r.legs : [];
@@ -213,10 +178,7 @@ export function buildProposal({ raw, events, nowSeconds, source, quotedAt }: Bui
       leverage: Number(leverage),
       price: Number(price),
       maxLeverage: Number(max),
-      rationale: text(item.rationale),
-      hedgeMechanism: text(item.hedge_mechanism),
-      basisRisk: item.basis_risk === "direct" ? "direct" : "proxy",
-      basisRiskNote: text(item.basis_risk_note),
+      basisRisk: item.basis === "direct" || item.basis_risk === "direct" ? "direct" : "proxy",
     });
   }
 
@@ -225,8 +187,7 @@ export function buildProposal({ raw, events, nowSeconds, source, quotedAt }: Bui
     .filter(isObj)
     .slice(0, MAX_SCENARIOS)
     .map((s) => ({
-      name: text(s.name, 80) || "Scenario",
-      description: text(s.description, 300),
+      name: text(s.name, 40) || "Scenario",
       winningSymbols: Array.isArray(s.winning_symbols)
         ? s.winning_symbols.filter((x): x is string => typeof x === "string" && symbols.has(x))
         : [],
@@ -237,12 +198,10 @@ export function buildProposal({ raw, events, nowSeconds, source, quotedAt }: Bui
   }
 
   return {
-    summary: text(r.summary, 1200),
-    exposure: parseExposure(r.exposure),
-    horizonNote: text(r.horizon_note, 400),
+    hedgingAgainst: text(r.hedging_against, 120),
     legs,
     scenarios,
-    warnings,
+    notes: warnings,
     quotedAt: quotedAt ?? new Date().toISOString(),
     source,
   };
