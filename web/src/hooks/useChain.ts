@@ -3,9 +3,9 @@
 // Wallet and contract access. Every hook has a demo path (isMock) backed by the local store and a
 // live path through wagmi; the two return the same shapes. isMock is a build-time constant, so the
 // branch a hook takes never changes between renders.
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { erc20Abi, erc4626Abi, parseEventLogs, type Hex } from "viem";
+import { erc20Abi, erc4626Abi, parseEventLogs, type Address, type Hex } from "viem";
 import {
   useAccount,
   useConfig,
@@ -381,6 +381,63 @@ const phaseOf = (base: OpenPhase, position: PositionView | null): OpenPhase => {
   return position.status === STATUS.PendingOpen ? "pending" : "filled";
 };
 
+type WagmiConfig = ReturnType<typeof useConfig>;
+
+/** Approve the MarginManager for `needed` USDC unless the current allowance already covers it. */
+async function ensureMarginAllowance(
+  config: WagmiConfig,
+  owner: Address,
+  needed: bigint,
+  onApproving?: () => void,
+): Promise<void> {
+  const allowance = await readContract(config, {
+    abi: erc20Abi,
+    address: contracts.usdc,
+    functionName: "allowance",
+    args: [owner, contracts.marginManager],
+    chainId,
+  });
+  if (allowance >= needed) return;
+  onApproving?.();
+  const approveHash = await writeContract(config, {
+    abi: erc20Abi,
+    address: contracts.usdc,
+    functionName: "approve",
+    args: [contracts.marginManager, needed],
+    chainId,
+  });
+  await waitForTransactionReceipt(config, { hash: approveHash, chainId });
+}
+
+/**
+ * Approve (unless `approve: false`), send openPosition, wait for the receipt and return the new
+ * position id from its PositionOpened log. Throws on any failure.
+ */
+async function openPositionTx(
+  config: WagmiConfig,
+  owner: Address,
+  args: OpenArgs,
+  opts: { approve?: boolean; onPhase?: (phase: "approving" | "opening") => void } = {},
+): Promise<bigint> {
+  const { approve = true, onPhase } = opts;
+  // openPosition pulls the margin plus the open fee, so the approval has to cover both.
+  if (approve) await ensureMarginAllowance(config, owner, args.margin + args.fee, () => onPhase?.("approving"));
+  onPhase?.("opening");
+  const hash = await writeContract(config, {
+    abi: marginManagerAbi,
+    address: contracts.marginManager,
+    functionName: "openPosition",
+    args: [args.marketId, args.side, args.margin, args.leverage],
+    chainId,
+  });
+  const receipt = await waitForTransactionReceipt(config, { hash, chainId });
+  if (receipt.status !== "success") throw new Error("The transaction reverted.");
+  const opened = parseEventLogs({ abi: marginManagerAbi, eventName: "PositionOpened", logs: receipt.logs });
+  const newId = opened[0]?.args.id;
+  if (newId === undefined) throw new Error("The position id was not found in the receipt.");
+  return newId;
+}
+
 function useDemoOpen(): OpenState {
   const state = useDemoState();
   const [id, setId] = useState<bigint | null>(null);
@@ -427,39 +484,7 @@ function useLiveOpen(): OpenState {
       setError(null);
       setId(null);
       try {
-        const allowance = await readContract(config, {
-          abi: erc20Abi,
-          address: contracts.usdc,
-          functionName: "allowance",
-          args: [address, contracts.marginManager],
-          chainId,
-        });
-        // openPosition pulls the margin plus the open fee, so the approval has to cover both.
-        const needed = args.margin + args.fee;
-        if (allowance < needed) {
-          setBase("approving");
-          const approveHash = await writeContract(config, {
-            abi: erc20Abi,
-            address: contracts.usdc,
-            functionName: "approve",
-            args: [contracts.marginManager, needed],
-            chainId,
-          });
-          await waitForTransactionReceipt(config, { hash: approveHash, chainId });
-        }
-        setBase("opening");
-        const hash = await writeContract(config, {
-          abi: marginManagerAbi,
-          address: contracts.marginManager,
-          functionName: "openPosition",
-          args: [args.marketId, args.side, args.margin, args.leverage],
-          chainId,
-        });
-        const receipt = await waitForTransactionReceipt(config, { hash, chainId });
-        if (receipt.status !== "success") throw new Error("The transaction reverted.");
-        const opened = parseEventLogs({ abi: marginManagerAbi, eventName: "PositionOpened", logs: receipt.logs });
-        const newId = opened[0]?.args.id;
-        if (newId === undefined) throw new Error("The position id was not found in the receipt.");
+        const newId = await openPositionTx(config, address, args, { onPhase: setBase });
         setId(newId);
         setBase("pending");
         await queryClient.invalidateQueries();
@@ -485,6 +510,235 @@ export const useOpenPosition: () => OpenState = isMock ? useDemoOpen : useLiveOp
 export function saveMarketMeta(marketId: Hex, meta: MarketMeta) {
   demo.saveMeta(marketId, meta);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Opening several positions in sequence
+
+export type BatchPhase = "idle" | "approving" | "opening" | "done" | "error";
+export type BatchLegStatus = "pending" | "opening" | "opened" | "failed";
+export type BatchLeg = { status: BatchLegStatus; positionId?: bigint; error?: string };
+export type BatchItem = { args: OpenArgs; meta: MarketMeta };
+export type OpenBatchState = {
+  phase: BatchPhase;
+  legs: BatchLeg[];
+  error: string | null; // a failure not tied to one leg (no wallet, the approval)
+  positions: PositionView[]; // the opened positions as last read, for watching fills
+  filled: boolean; // every leg opened and every position left PendingOpen
+  run: (items: BatchItem[]) => Promise<void>;
+  retryRemaining: () => Promise<void>;
+  reset: () => void;
+};
+
+/** USDC the MarginManager must be allowed to pull to open every leg not yet opened. */
+export function batchApproval(items: readonly BatchItem[], legs: readonly BatchLeg[]): bigint {
+  return items.reduce(
+    (sum, item, i) => (legs[i]?.status === "opened" ? sum : sum + item.args.margin + item.args.fee),
+    0n,
+  );
+}
+
+/** Index of the first leg that has not opened, or -1 when all have. */
+export function firstUnopened(legs: readonly BatchLeg[]): number {
+  return legs.findIndex((l) => l.status !== "opened");
+}
+
+/**
+ * Open each leg not yet opened, in order, stopping at the first failure: that leg is marked
+ * failed and the later ones stay pending. `update` receives every intermediate legs array.
+ */
+export async function runBatchLegs(
+  items: readonly BatchItem[],
+  legs: readonly BatchLeg[],
+  openOne: (item: BatchItem, index: number) => Promise<bigint>,
+  update: (legs: BatchLeg[]) => void,
+): Promise<BatchLeg[]> {
+  let current = items.map((_, i) => legs[i] ?? { status: "pending" as const });
+  const set = (i: number, leg: BatchLeg) => {
+    current = current.map((l, j) => (j === i ? leg : l));
+    update(current);
+  };
+  for (let i = 0; i < items.length; i++) {
+    if (current[i]!.status === "opened") continue;
+    set(i, { status: "opening" });
+    try {
+      set(i, { status: "opened", positionId: await openOne(items[i]!, i) });
+    } catch (e) {
+      set(i, { status: "failed", error: errorMessage(e) });
+      break;
+    }
+  }
+  return current;
+}
+
+const pendingLegs = (items: readonly BatchItem[]): BatchLeg[] => items.map(() => ({ status: "pending" }));
+
+/** Phase, legs and the run/retry/reset plumbing both batch hooks share. */
+function useBatchRunner(
+  approve: (items: BatchItem[], legs: BatchLeg[], onApproving: () => void) => Promise<void>,
+  openOne: (item: BatchItem) => Promise<bigint>,
+  after: () => Promise<void>,
+) {
+  const [phase, setPhase] = useState<BatchPhase>("idle");
+  const [legs, setLegs] = useState<BatchLeg[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const items = useRef<BatchItem[]>([]);
+  const current = useRef<BatchLeg[]>([]);
+  const busy = useRef(false);
+
+  const execute = useCallback(
+    async (start: BatchLeg[]) => {
+      if (busy.current) return;
+      busy.current = true;
+      setError(null);
+      const update = (next: BatchLeg[]) => {
+        current.current = next;
+        setLegs(next);
+      };
+      update(start);
+      try {
+        await approve(items.current, start, () => setPhase("approving"));
+      } catch (e) {
+        setPhase("error");
+        setError(errorMessage(e));
+        busy.current = false;
+        return;
+      }
+      setPhase("opening");
+      const final = await runBatchLegs(
+        items.current,
+        start,
+        (item) => {
+          saveMarketMeta(item.args.marketId, item.meta);
+          return openOne(item);
+        },
+        update,
+      );
+      setPhase(final.some((l) => l.status === "failed") ? "error" : "done");
+      busy.current = false;
+      await after();
+    },
+    [approve, openOne, after],
+  );
+
+  const run = useCallback(
+    async (next: BatchItem[]) => {
+      if (busy.current) return;
+      items.current = next;
+      await execute(pendingLegs(next));
+    },
+    [execute],
+  );
+
+  // Resume from the first leg that has not opened; a failed leg goes back to pending.
+  const retryRemaining = useCallback(async () => {
+    if (busy.current || firstUnopened(current.current) === -1) return;
+    await execute(current.current.map((l) => (l.status === "opened" ? l : { status: "pending" })));
+  }, [execute]);
+
+  const reset = useCallback(() => {
+    if (busy.current) return;
+    items.current = [];
+    current.current = [];
+    setLegs([]);
+    setPhase("idle");
+    setError(null);
+  }, []);
+
+  return { phase, legs, error, run, retryRemaining, reset };
+}
+
+const openedIds = (legs: readonly BatchLeg[]): bigint[] =>
+  legs.flatMap((l) => (l.status === "opened" && l.positionId !== undefined ? [l.positionId] : []));
+
+const allFilled = (legs: readonly BatchLeg[], positions: readonly PositionView[]) =>
+  legs.length > 0 &&
+  firstUnopened(legs) === -1 &&
+  positions.length === legs.length &&
+  positions.every((p) => p.status !== STATUS.PendingOpen);
+
+const noApproval = async () => {};
+const noop = async () => {};
+const demoOpenOne = async (item: BatchItem) => demo.open(item.args);
+
+function useDemoOpenBatch(): OpenBatchState {
+  const state = useDemoState();
+  const runner = useBatchRunner(noApproval, demoOpenOne, noop);
+  const positions = useMemo(() => {
+    const ids = new Set(openedIds(runner.legs));
+    return state.positions.filter((p) => ids.has(p.id));
+  }, [state.positions, runner.legs]);
+  return { ...runner, positions, filled: allFilled(runner.legs, positions) };
+}
+
+function useLiveOpenBatch(): OpenBatchState {
+  const { address } = useAccount();
+  const config = useConfig();
+  const queryClient = useQueryClient();
+
+  // One approval for everything still to open, so the wallet prompts once rather than per leg.
+  const approve = useCallback(
+    async (items: BatchItem[], legs: BatchLeg[], onApproving: () => void) => {
+      if (!address) throw new Error("Connect a wallet first.");
+      await ensureMarginAllowance(config, address, batchApproval(items, legs), onApproving);
+    },
+    [address, config],
+  );
+  const openOne = useCallback(
+    (item: BatchItem) => {
+      if (!address) return Promise.reject(new Error("Connect a wallet first."));
+      return openPositionTx(config, address, item.args, { approve: false });
+    },
+    [address, config],
+  );
+  const after = useCallback(() => queryClient.invalidateQueries(), [queryClient]);
+  const runner = useBatchRunner(approve, openOne, after);
+
+  // Poll the opened positions until the keeper fills every one of them.
+  const ids = useMemo(() => openedIds(runner.legs), [runner.legs]);
+  const tracked = useReadContracts({
+    contracts: ids.map(
+      (id) =>
+        ({
+          abi: marginManagerAbi,
+          address: contracts.marginManager,
+          functionName: "getPosition",
+          args: [id],
+          chainId,
+        }) as const,
+    ),
+    allowFailure: true,
+    query: {
+      enabled: ids.length > 0,
+      refetchInterval: (q) =>
+        q.state.data?.every((r) => (r.result as RawPosition | undefined)?.status !== STATUS.PendingOpen)
+          ? false
+          : 2_000,
+    },
+  });
+  const positions = useMemo(() => {
+    const out: PositionView[] = [];
+    ids.forEach((id, i) => {
+      const raw = tracked.data?.[i]?.result as RawPosition | undefined;
+      if (raw) out.push(toView(id, raw));
+    });
+    return out;
+  }, [ids, tracked.data]);
+  const filled = allFilled(runner.legs, positions);
+
+  // Refresh balances and the positions list once every leg has filled.
+  const filledKey = filled ? ids.join(",") : null;
+  useEffect(() => {
+    if (filledKey !== null) void queryClient.invalidateQueries();
+  }, [filledKey, queryClient]);
+
+  return { ...runner, positions, filled };
+}
+
+/**
+ * Open several positions one after another, with a single USDC approval up front. A failed leg
+ * stops the run; `retryRemaining()` resumes from the first leg that has not opened.
+ */
+export const useOpenBatch: () => OpenBatchState = isMock ? useDemoOpenBatch : useLiveOpenBatch;
 
 // ---------------------------------------------------------------------------------------------
 // Vault
