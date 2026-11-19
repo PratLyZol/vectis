@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { PositionReplay } from "@/components/PositionReplay";
 import { getEvent, isSafeId } from "@/lib/gemini";
 import type { ReplayMarket } from "@/lib/replay";
@@ -31,14 +30,6 @@ export default async function ReplayPage({ searchParams }: Props) {
   return (
     <>
       <h1 className="text-[28px] md:text-[36px]">Replay</h1>
-      <p className="mt-3 max-w-[66ch] text-muted">
-        Take a real Gemini market, open a leveraged position at any minute of its history, and run the market
-        forward. The position follows the contract rules: the same leverage cap, open fee and liquidation price
-        as a live trade. The position itself is hypothetical.{" "}
-        <Link className="link" href="/markets">
-          Trade a live market
-        </Link>
-      </p>
       {initial ? <PositionReplay markets={markets} initialSymbol={initial} /> : null}
       <p className="mt-4 max-w-[80ch] text-[12px] text-muted">
         Entries and exits use each one-minute bar&apos;s closing price, with no spread. A liquidation sells at the
