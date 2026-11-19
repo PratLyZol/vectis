@@ -1,0 +1,42 @@
+{
+  "coordinator": { "owns": [".claude/hub/grants/**", ".claude/hub/ownership.json"] },
+  "frontend": {
+    "owns": ["web/src/**", "web/public/**"],
+    "test": "cd web && pnpm typecheck && pnpm test",
+    "notes": "Next.js app. web/src/config/** is shared (generated from contracts)."
+  },
+  "backend": {
+    "owns": ["keeper/src/**", "keeper/test/**", "scripts/**"],
+    "test": "cd keeper && pnpm typecheck && pnpm test",
+    "notes": "Keeper service and root Node scripts."
+  },
+  "native": {
+    "owns": ["contracts/src/**", "contracts/test/**", "contracts/script/**", "contracts/foundry.toml", "contracts/README.md"],
+    "test": "cd contracts && forge test",
+    "notes": "Foundry Solidity contracts. contracts/lib/** is vendored; do not edit."
+  },
+  "docs": {
+    "owns": ["demo/**"]
+  },
+  "reviewer": { "owns": [] },
+  "shared": [
+    "README.md",
+    "CLAUDE.md",
+    ".gitignore",
+    ".env*",
+    "**/.env*",
+    "**/package.json",
+    "**/pnpm-lock.yaml",
+    "**/pnpm-workspace.yaml",
+    "**/tsconfig.json",
+    "web/*.config.*",
+    "web/vercel.json",
+    "web/AGENTS.md",
+    "web/src/config/**",
+    "keeper/addresses.json",
+    "contracts/lib/**",
+    "skills-lock.json",
+    ".agents/**",
+    ".claude/skills/**"
+  ]
+}

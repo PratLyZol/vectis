@@ -11,3 +11,4 @@ contracts/cache/
 contracts/out/
 contracts/broadcast/
 .DS_Store
+.claude/hub/grants/*.json
