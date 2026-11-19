@@ -40,3 +40,46 @@ export type EventResponse = { source: DataSource; event: MarketEvent };
 
 export type BookLevel = { price: number; amount: number }; // price 1e6 YES space, amount in contracts
 export type BookResponse = { source: DataSource; bids: BookLevel[]; asks: BookLevel[] };
+
+// ---------------------------------------------------------------------------------------------
+// Hedge agent (/api/hedge). USDC amounts and prices are 1e6-scaled integers as plain numbers;
+// leverage is in tenths (10 = 1x), as on-chain.
+
+export type HedgeLeg = {
+  eventTicker: string;
+  eventTitle: string;
+  category: string;
+  imageUrl: string | null;
+  symbol: string;
+  label: string;
+  expiry: string | null;
+  side: "yes" | "no";
+  margin: number; // USDC 1e6
+  leverage: number; // tenths
+  price: number; // side ask 1e6 at quote time
+  maxLeverage: number; // tenths at quote time
+  basisRisk: "direct" | "proxy"; // direct: the market is on the exposure itself
+};
+
+export type HedgeScenario = {
+  name: string; // a few words, e.g. "Gas spikes"
+  winningSymbols: string[]; // legs (by symbol) that pay out in this scenario
+};
+
+export type HedgeProposal = {
+  hedgingAgainst: string; // the adverse move, e.g. "Natural gas prices rising"
+  legs: HedgeLeg[];
+  scenarios: HedgeScenario[];
+  notes: string[]; // adjustments the server made, and the agent's note when nothing fits
+  quotedAt: string; // ISO
+  source: DataSource;
+};
+
+export type HedgeMessage = { role: "user" | "assistant"; content: string };
+
+export type HedgeRequest = { messages: HedgeMessage[]; proposal?: HedgeProposal | null };
+
+export type HedgeResponse =
+  | { type: "question"; question: string }
+  | { type: "proposal"; proposal: HedgeProposal }
+  | { type: "error"; error: string };

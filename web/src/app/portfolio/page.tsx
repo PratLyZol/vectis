@@ -10,10 +10,6 @@ export default function PortfolioPage() {
   return (
     <>
       <h1 className="text-[28px] md:text-[36px]">Portfolio</h1>
-      <p className="mt-3 max-w-[62ch] text-muted">
-        Positions are marked at the bid for their side. A position can be liquidated when its mark reaches the
-        liquidation price.
-      </p>
       <Portfolio />
     </>
   );

@@ -16,6 +16,10 @@
 //              PositionLiquidated trigger execution at once. Primary trigger when available.
 //   - events   every 2 s: getLogs cursor over the MarginManager (small ranges, HTTP polling);
 //              same triggers, same handler. Fallback that always runs.
+//   - requests every KEEPER_COMBO_POLL_MS: read the web app's market requests (markets a hedge
+//              proposal needs), register and price the newest KEEPER_REQUEST_COUNT that fit the
+//              book budget, and stop pricing a market 2 h after its last request (unless it carries
+//              a position).
 //   - combos   every KEEPER_COMBO_POLL_MS: read the web app's combo registry, keep the newest
 //              requested combos plus any with an active position, register them. Combos are
 //              priced in the price loop from their legs' books and their fills are always simulated.
@@ -36,6 +40,7 @@ import { errText, logger } from "./log.js";
 import { findSymbols, selectMarkets, type TrackedMarket } from "./markets.js";
 import { marketIdOf } from "./math.js";
 import { OracleFeed, booksPerCycle, maxDistinctBooks } from "./oracle.js";
+import { MarketRequests } from "./requests.js";
 import { KeeperState } from "./state.js";
 import { StreamWatcher } from "./stream.js";
 
@@ -196,7 +201,25 @@ async function main(): Promise<void> {
       maxBooks,
     });
   }
+  // Market requests: single markets the web app needs priced (hedge proposals).
+  const requests = new MarketRequests(
+    cfg.appUrl && cfg.requestCount > 0 ? cfg.appUrl : null,
+    cfg.requestCount,
+    maxBooks,
+    {
+      baseSymbols: () => feed.baseSymbols(),
+      syncRequested: (list) => feed.syncRequested(list),
+      remember: (list) => state.rememberSymbols(list.map((m) => ({ marketId: m.marketId, symbol: m.symbol }))),
+    },
+    () => exec.activeMarkets(),
+  );
   await combos.tick();
+  await requests.tick();
+  log.info(
+    cfg.appUrl && cfg.requestCount > 0
+      ? `market requests: enabled, up to ${cfg.requestCount} from ${cfg.appUrl}`
+      : "market requests: disabled (VECTIS_APP_URL not set or KEEPER_REQUEST_COUNT=0)",
+  );
   const comboCount = combos.tracked.length;
   if (cfg.appUrl) {
     log.info(`combos: enabled, tracking ${comboCount} (max ${cfg.comboCount}, book budget ${maxBooks}) from ${cfg.appUrl}`);
@@ -221,7 +244,12 @@ async function main(): Promise<void> {
     sleep(cfg.pollMs).then(() => runLoop("price", cfg.pollMs, () => feed.cycle())),
     runLoop("events", EVENT_POLL_MS, () => exec.pollEvents()),
     stream ? runStream(stream) : Promise.resolve(),
-    sleep(cfg.comboPollMs).then(() => runLoop("combos", cfg.comboPollMs, () => combos.tick())),
+    sleep(cfg.comboPollMs).then(() =>
+      runLoop("combos", cfg.comboPollMs, async () => {
+        await combos.tick();
+        await requests.tick();
+      }),
+    ),
   ]);
 
   // Let an in-flight transaction settle so its nonce is not left dangling.
