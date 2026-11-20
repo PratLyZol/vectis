@@ -99,4 +99,11 @@ export type HedgeStepEvent = {
   detail?: string;
 };
 
-export type HedgeStreamEvent = { event: "step"; data: HedgeStepEvent } | { event: "result"; data: HedgeResponse };
+// A short piece of the model's reasoning for model step `id`, shown in the trace. Unlike labels
+// this is model free text: plain text only, never rendered as HTML or markdown.
+export type HedgeThoughtEvent = { id: number; text: string };
+
+export type HedgeStreamEvent =
+  | { event: "step"; data: HedgeStepEvent }
+  | { event: "thought"; data: HedgeThoughtEvent }
+  | { event: "result"; data: HedgeResponse };

@@ -397,6 +397,116 @@
       animation: agent-pulse 1200ms var(--ease-in-out) infinite alternate;
     }
   }
+
+  /* The hedge agent's trace (AgentTrace). A row that arrives while the agent works fades in and
+     rises 6px; the rise is dropped under a reduced-motion preference. */
+  .trace-row {
+    transition: opacity 200ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .trace-row {
+      transition:
+        opacity 200ms var(--ease-out),
+        transform 200ms var(--ease-out);
+      @starting-style {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+    }
+  }
+  /* A step's node on the rail: an outline that pulses while the step runs and fills when it is
+     done. The fill and the step's detail fade in only. */
+  .trace-node {
+    position: absolute;
+    top: 0.5em;
+    left: -3px;
+    width: 5px;
+    height: 5px;
+    border: 1px solid var(--color-muted);
+    background: var(--color-ground);
+  }
+  .trace-node::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    background: var(--color-text-2);
+    opacity: 0;
+    transition: opacity 150ms var(--ease-out);
+  }
+  .trace-node.is-done::after {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .trace-node.is-running {
+      animation: agent-pulse 1200ms var(--ease-in-out) infinite alternate;
+    }
+  }
+  .trace-fade {
+    transition: opacity 150ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  /* The step that is running: a light band sweeps across the grey label. Static and muted under
+     a reduced-motion preference. */
+  .trace-shimmer {
+    color: var(--color-muted);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .trace-shimmer {
+      background-image: linear-gradient(
+        90deg,
+        var(--color-muted) 0%,
+        var(--color-muted) 40%,
+        var(--color-text) 50%,
+        var(--color-muted) 60%,
+        var(--color-muted) 100%
+      );
+      background-size: 250% 100%;
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      animation: trace-shimmer 1600ms linear infinite;
+    }
+  }
+  /* Collapse and expand: an accordion, so rows animate (0fr <-> 1fr) with the content's opacity.
+     A transition, so a fast double toggle retargets. Instant under reduced motion, opacity kept. */
+  .trace-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 220ms var(--ease-in-out),
+      opacity 220ms var(--ease-in-out);
+  }
+  .trace-panel[data-open="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  .trace-chevron[data-open="true"] {
+    transform: rotate(90deg);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .trace-chevron {
+      transition: transform 220ms var(--ease-in-out);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .trace-panel {
+      transition: opacity 150ms var(--ease-out);
+    }
+  }
+  .trace-toggle {
+    transition: color 150ms ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .trace-toggle:hover {
+      color: var(--color-text-2);
+    }
+  }
   .over-field {
     position: relative;
     z-index: 1;
@@ -965,6 +1075,15 @@
 @keyframes agent-pulse {
   to {
     opacity: 0.2;
+  }
+}
+/* The band starts off the left edge and ends off the right (background-size 250%). */
+@keyframes trace-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
   }
 }
 

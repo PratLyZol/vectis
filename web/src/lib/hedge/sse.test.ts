@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { runHedgeAgent, type MarketData } from "./agent.server";
 import { hedgeSseStream } from "./respond.server";
 import { createSseDecoder, encodeSse, readHedgeStream, type SseFrame } from "./sse";
-import type { HedgeResponse, HedgeStepEvent } from "../types";
+import type { HedgeResponse, HedgeStepEvent, HedgeThoughtEvent } from "../types";
 
 const step = (id: number, phase: "start" | "done", label = "Thinking"): HedgeStepEvent => ({ id, phase, kind: "model", label });
 
@@ -75,6 +75,40 @@ describe("readHedgeStream", () => {
   it("resolves null when the stream ends without a result", async () => {
     const r = await readHedgeStream(chunked(encodeSse({ event: "step", data: step(1, "start") }), [5]), () => {});
     expect(r).toBeNull();
+  });
+});
+
+describe("thought events", () => {
+  it("are passed to onThought, unknown event types are ignored, and the result still arrives", async () => {
+    const result: HedgeResponse = { type: "question", question: "Budget?" };
+    const text =
+      encodeSse({ event: "step", data: step(1, "start") }) +
+      encodeSse({ event: "thought", data: { id: 1, text: "Checking oil\u0007 first" } }) +
+      'event: telemetry\ndata: {"id":1,"label":"x"}\n\n' +
+      'event: thought\ndata: {"id":"bad"}\n\n' +
+      encodeSse({ event: "result", data: result });
+    const steps: HedgeStepEvent[] = [];
+    const thoughts: HedgeThoughtEvent[] = [];
+    const r = await readHedgeStream(chunked(text, [9, 2]), (s) => steps.push(s), (t) => thoughts.push(t));
+    expect(r).toEqual(result);
+    expect(steps).toHaveLength(1);
+    expect(thoughts).toEqual([{ id: 1, text: "Checking oil  first" }]);
+    // A reader without onThought (an older page) is unaffected.
+    expect(await readHedgeStream(chunked(text, [5]), () => {})).toEqual(result);
+  });
+
+  it("are streamed by hedgeSseStream with exactly one result", async () => {
+    const text = await drain(
+      hedgeSseStream(async (emit, emitThought) => {
+        emit(step(1, "start"));
+        emitThought({ id: 1, text: "Looking at oil." });
+        emit(step(1, "done"));
+        return { type: "question", question: "Budget?" };
+      }),
+    );
+    const out = frames(text);
+    expect(out.map((f) => f.event)).toEqual(["step", "thought", "step", "result"]);
+    expect(JSON.parse(out[1]!.data)).toEqual({ id: 1, text: "Looking at oil." });
   });
 });
 

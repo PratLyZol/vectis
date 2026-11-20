@@ -20,6 +20,7 @@ import type {
   HedgeProposal,
   HedgeResponse,
   HedgeStepEvent,
+  HedgeThoughtEvent,
   MarketEvent,
   MarketsResponse,
 } from "../types";
@@ -61,6 +62,8 @@ export type AgentDeps = {
   deadlineMs?: number; // wall-clock budget for the whole loop
   /** Progress of the loop, for streaming. Called synchronously; a listener that throws is ignored. */
   onEvent?: (e: HedgeStepEvent) => void;
+  /** A short piece of the model's reasoning per model step, for the trace. Same rules as onEvent. */
+  onThought?: (t: HedgeThoughtEvent) => void;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -83,7 +86,9 @@ Process:
 6. Leverage: from 1x to the leg's max (preview_position reports it with exact cost; the server also enforces it). Liquidation defeats a hedge, so use 1x unless the budget forces otherwise.
 7. Call propose_hedge. Its fields are data only: no explanations, rationales or disclaimers (the UI shows market data and a fixed disclaimer). If nothing listed relates, propose no legs and say why in note.
 
-Always finish by calling ask_user or propose_hedge. Do not reply with plain text.`;
+Before each data tool call, write one short plain sentence (under 25 words) in your message saying what you are checking and why. The fields of propose_hedge and ask_user stay data only.
+
+Always finish by calling ask_user or propose_hedge. Never reply with plain text alone.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -202,7 +207,9 @@ function eventSummary(e: MarketEvent, contractLimit?: number) {
   };
 }
 
-type ToolContext = { data: MarketData; now: Date; sources: Set<DataSource> };
+// `contractLabels`: symbol -> contract label, filled from Gemini data as preview_position resolves
+// a contract, so the step label can name it.
+type ToolContext = { data: MarketData; now: Date; sources: Set<DataSource>; contractLabels: Map<string, string> };
 
 async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<unknown> {
   const { data } = ctx;
@@ -257,6 +264,7 @@ async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCon
       const r = await data.getEvent(ticker);
       const contract = r?.event.contracts.find((c) => c.symbol === symbol);
       if (!r || !contract) return { error: `${symbol} is not a contract of ${ticker}.` };
+      ctx.contractLabels.set(symbol, contract.label);
       if (!contract.open) return { error: "This contract is closed to trading." };
       const price = contractAsk(contract, side);
       if (price === null) return { error: `No ${side} offer right now.` };
@@ -325,8 +333,9 @@ export function toolStartLabel(name: string, args: Record<string, unknown>): str
 /**
  * The label and detail once a data tool has returned. Reads the structured result we built in
  * runTool (counts, and tickers, titles and symbols that Gemini returned), never its text.
+ * `contract` is the Gemini label of the contract a preview_position call resolved, if any.
  */
-export function toolDoneLabel(name: string, startLabel: string, result: unknown): { label: string; detail?: string } {
+export function toolDoneLabel(name: string, startLabel: string, result: unknown, contract?: string): { label: string; detail?: string } {
   const r = obj(result);
   if (!r || "error" in r) return { label: startLabel, detail: "no result" };
   switch (name) {
@@ -346,11 +355,57 @@ export function toolDoneLabel(name: string, startLabel: string, result: unknown)
     }
     case "preview_position": {
       const max = Number(r.max_leverage);
-      return { label: startLabel, detail: Number.isFinite(max) ? `max ${fmtLev(max)}` : undefined };
+      const c = contract ? contract.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) : "";
+      const label = c ? startLabel.replace(/^Pricing (Yes|No)/, `$& on "${c}"`) : startLabel;
+      return { label, detail: Number.isFinite(max) ? `max ${fmtLev(max)}` : undefined };
     }
     default:
       return { label: startLabel };
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Thoughts (streamed to the browser as `thought` events, never as labels). Model free text: the
+// provider's reasoning field, a <think> block, or the short sentence the prompt asks for before
+// each tool call. Plain text only, and never added to the conversation beyond what the assistant
+// message already carries.
+
+export const THOUGHT_CHARS = 600;
+const ENCRYPTED = /^\[some reasoning content is encrypted\]$/i;
+
+/** Plain text for the trace: no control characters or think tags, single spaces, capped. */
+export function cleanThought(s: string): string {
+  const t = s
+    .replace(/<\/?think>/gi, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.length > THOUGHT_CHARS ? `${t.slice(0, THOUGHT_CHARS - 1).trimEnd()}…` : t;
+}
+
+/** Splits a leading <think>…</think> block (or reasoning closed by a bare </think>) off content. */
+export function splitThink(content: string): { think: string; rest: string } {
+  const close = content.search(/<\/think>/i);
+  if (close >= 0) {
+    const head = content.slice(0, close);
+    const open = head.search(/<think>/i);
+    // Only reasoning that leads the message counts; text before an opening tag stays content.
+    if (open < 0 || !head.slice(0, open).trim()) {
+      return { think: open < 0 ? head : head.slice(open + 7), rest: content.slice(close + 8) };
+    }
+  }
+  const m = /^\s*<think>/i.exec(content);
+  return m ? { think: content.slice(m[0].length), rest: "" } : { think: "", rest: content };
+}
+
+/** The thought for one model message, first non-empty source wins. */
+export function thoughtOf(msg: { reasoning_content?: unknown; reasoning?: unknown }, think: string, content: string, hasCalls: boolean): string {
+  for (const raw of [msg.reasoning_content, msg.reasoning, think, hasCalls ? content : ""]) {
+    if (typeof raw !== "string") continue;
+    const t = cleanThought(raw);
+    if (t && !ENCRYPTED.test(t)) return t;
+  }
+  return "";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -408,7 +463,7 @@ export async function runHedgeAgent(
 ): Promise<HedgeResponse> {
   const now = deps.now?.() ?? new Date();
   const deadline = Date.now() + (deps.deadlineMs ?? AGENT_DEADLINE_MS);
-  const ctx: ToolContext = { data: deps.data ?? geminiData, now, sources: new Set() };
+  const ctx: ToolContext = { data: deps.data ?? geminiData, now, sources: new Set(), contractLabels: new Map() };
   const client = deps.client as ChatClient;
   let stepId = 0;
   const emit = (e: HedgeStepEvent) => {
@@ -416,6 +471,13 @@ export async function runHedgeAgent(
       deps.onEvent?.(e);
     } catch {
       // A listener (e.g. a closed stream) must never break the loop.
+    }
+  };
+  const emitThought = (t: HedgeThoughtEvent) => {
+    try {
+      deps.onThought?.(t);
+    } catch {
+      // Same as emit.
     }
   };
 
@@ -441,9 +503,9 @@ export async function runHedgeAgent(
       tool_choice: "auto",
       temperature: 0.2,
       ...(deps.reasoningEffort ? { reasoning_effort: deps.reasoningEffort } : {}),
-      // Venice extensions: no Venice persona prompt, no web search (stay on Gemini data), no
-      // reasoning text in the reply.
-      venice_parameters: { include_venice_system_prompt: false, enable_web_search: "off", strip_thinking_response: true },
+      // Venice extensions: no Venice persona prompt, no web search (stay on Gemini data). Thinking
+      // is not stripped so the trace can show it; a <think> block in content is split off below.
+      venice_parameters: { include_venice_system_prompt: false, enable_web_search: "off", strip_thinking_response: false },
     } as ChatCompletionCreateParamsNonStreaming;
     let res: ChatCompletion;
     const modelStep = ++stepId;
@@ -461,9 +523,13 @@ export async function runHedgeAgent(
     const calls = (msg?.tool_calls ?? []).filter((c) => c.type === "function");
     emit({ id: modelStep, phase: "done", kind: "model", label: "Thinking", ...(calls.length ? { detail: plural(calls.length, "tool call") } : {}) });
     if (!msg) return { type: "error", error: "The model returned no message." };
+    // Reasoning in a <think> block never goes back to the model or into a reply.
+    const { think, rest: content } = splitThink(msg.content ?? "");
+    const thought = thoughtOf(msg as { reasoning_content?: unknown; reasoning?: unknown }, think, content, calls.length > 0);
+    if (thought) emitThought({ id: modelStep, text: thought });
 
     if (calls.length === 0) {
-      const textReply = (msg.content ?? "").trim();
+      const textReply = content.trim();
       if (nudged || finalStep) {
         return textReply ? { type: "question", question: textReply } : { type: "error", error: "The agent did not produce a proposal." };
       }
@@ -473,7 +539,7 @@ export async function runHedgeAgent(
       continue;
     }
 
-    messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: calls });
+    messages.push({ role: "assistant", content: content.trim() ? content : null, tool_calls: calls });
 
     const terminal = calls.find((c) => c.function.name === "propose_hedge" || c.function.name === "ask_user");
     if (terminal) {
@@ -508,7 +574,8 @@ export async function runHedgeAgent(
         } catch (e) {
           result = { error: e instanceof Error ? e.message : "Tool failed." };
         }
-        emit({ id, phase: "done", kind: "tool", tool: name, ...toolDoneLabel(name, label, result) });
+        const contract = name === "preview_position" ? ctx.contractLabels.get(str(args.symbol)) : undefined;
+        emit({ id, phase: "done", kind: "tool", tool: name, ...toolDoneLabel(name, label, result, contract) });
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: clip(JSON.stringify(result)) });
     }

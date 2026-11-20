@@ -2,8 +2,8 @@
 // proposal); the agent answers with one clarifying question or a server-validated proposal.
 // Read-only: positions are opened by the browser after the user confirms.
 //
-// With `Accept: text/event-stream` the answer is streamed: a `step` event per tool-loop step, then
-// one `result` event carrying the same body the JSON path returns. Requests rejected before the
+// With `Accept: text/event-stream` the answer is streamed: a `step` event per tool-loop step and a
+// `thought` event per short piece of model reasoning, then one `result` event carrying the same body the JSON path returns. Requests rejected before the
 // agent starts (no key, bad body) get plain JSON either way.
 import { NextResponse } from "next/server";
 import { runHedgeAgent } from "@/lib/hedge/agent.server";
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   const deps = { client, model: veniceModel(), reasoningEffort: veniceReasoningEffort() };
 
   if ((req.headers.get("accept") ?? "").includes(SSE_CONTENT_TYPE)) {
-    const stream = hedgeSseStream((onEvent) => runHedgeAgent(input, { ...deps, onEvent }), { signal: req.signal });
+    const stream = hedgeSseStream((onEvent, onThought) => runHedgeAgent(input, { ...deps, onEvent, onThought }), { signal: req.signal });
     return new Response(stream, {
       headers: {
         "Content-Type": SSE_CONTENT_TYPE,

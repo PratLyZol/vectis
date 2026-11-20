@@ -1,7 +1,8 @@
 // Server-Sent Events for the hedge agent, shared by the route (encoding) and the browser
 // (decoding). The browser cannot POST with EventSource, so it reads the fetch body and decodes it
-// here. Wire format: `event: step` frames while the agent works, then exactly one `event: result`.
-import type { HedgeResponse, HedgeStepEvent, HedgeStreamEvent } from "../types";
+// here. Wire format: `event: step` and `event: thought` frames while the agent works, then exactly
+// one `event: result`. Readers ignore event types they do not know, so either side can add one.
+import type { HedgeResponse, HedgeStepEvent, HedgeStreamEvent, HedgeThoughtEvent } from "../types";
 
 export const SSE_CONTENT_TYPE = "text/event-stream";
 
@@ -72,6 +73,16 @@ function parseStep(v: unknown): HedgeStepEvent | null {
   };
 }
 
+const THOUGHT_MAX = 600;
+
+function parseThought(v: unknown): HedgeThoughtEvent | null {
+  if (typeof v !== "object" || v === null) return null;
+  const t = v as Record<string, unknown>;
+  if (typeof t.id !== "number" || typeof t.text !== "string") return null;
+  const text = t.text.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim().slice(0, THOUGHT_MAX);
+  return text ? { id: t.id, text } : null;
+}
+
 function parseResult(v: unknown): HedgeResponse | null {
   if (typeof v !== "object" || v === null) return null;
   const t = (v as { type?: unknown }).type;
@@ -79,10 +90,15 @@ function parseResult(v: unknown): HedgeResponse | null {
 }
 
 /**
- * Reads a hedge SSE body to the end. Calls `onStep` for each step and resolves with the result,
- * or null if the stream ended without one. Rejects if the read fails (including on abort).
+ * Reads a hedge SSE body to the end. Calls `onStep` for each step and `onThought` for each thought,
+ * and resolves with the result, or null if the stream ended without one. Other event types are
+ * ignored. Rejects if the read fails (including on abort).
  */
-export async function readHedgeStream(body: ReadableStream<Uint8Array>, onStep: (s: HedgeStepEvent) => void): Promise<HedgeResponse | null> {
+export async function readHedgeStream(
+  body: ReadableStream<Uint8Array>,
+  onStep: (s: HedgeStepEvent) => void,
+  onThought?: (t: HedgeThoughtEvent) => void,
+): Promise<HedgeResponse | null> {
   let result: HedgeResponse | null = null;
   const decoder = createSseDecoder((f) => {
     let v: unknown;
@@ -94,6 +110,9 @@ export async function readHedgeStream(body: ReadableStream<Uint8Array>, onStep: 
     if (f.event === "step") {
       const s = parseStep(v);
       if (s && !result) onStep(s);
+    } else if (f.event === "thought") {
+      const t = parseThought(v);
+      if (t && !result) onThought?.(t);
     } else if (f.event === "result" && !result) {
       result = parseResult(v);
     }

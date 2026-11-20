@@ -1,7 +1,7 @@
 // Server only: how /api/hedge turns an agent run into a response. Shared by the JSON path and the
 // SSE path so both report failures with the same messages.
 import OpenAI from "openai";
-import type { HedgeResponse, HedgeStepEvent } from "../types";
+import type { HedgeResponse, HedgeStepEvent, HedgeThoughtEvent } from "../types";
 import { SSE_PING, encodeSse } from "./sse";
 
 export const PING_MS = 15_000;
@@ -19,13 +19,14 @@ export function hedgeFailure(e: unknown): { body: HedgeResponse; status: number 
 }
 
 /**
- * An SSE body for one agent run: a `step` frame per progress event, a `: ping` comment every
+ * An SSE body for one agent run: a `step` frame per progress event, a `thought` frame per
+ * thought, a `: ping` comment every
  * `pingMs` so proxies keep the connection open, and exactly one `result` frame at the end, also
  * when the run throws. Once the client goes away (cancel or `signal`), nothing more is written;
  * the run itself is not interrupted.
  */
 export function hedgeSseStream(
-  run: (emit: (e: HedgeStepEvent) => void) => Promise<HedgeResponse>,
+  run: (emit: (e: HedgeStepEvent) => void, emitThought: (t: HedgeThoughtEvent) => void) => Promise<HedgeResponse>,
   opts: { signal?: AbortSignal; pingMs?: number } = {},
 ): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -61,9 +62,14 @@ export function hedgeSseStream(
       opts.signal?.addEventListener("abort", finish, { once: true });
       ping = setInterval(() => write(SSE_PING), opts.pingMs ?? PING_MS);
       let ended = false;
-      void run((e) => {
-        if (!ended) write(encodeSse({ event: "step", data: e }));
-      })
+      void run(
+        (e) => {
+          if (!ended) write(encodeSse({ event: "step", data: e }));
+        },
+        (t) => {
+          if (!ended) write(encodeSse({ event: "thought", data: t }));
+        },
+      )
         .catch((e: unknown) => hedgeFailure(e).body)
         .then((result) => {
           ended = true;

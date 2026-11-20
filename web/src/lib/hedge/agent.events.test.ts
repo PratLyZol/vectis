@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatCompletion } from "openai/resources/chat/completions";
-import { runHedgeAgent, toolDoneLabel, toolStartLabel, type MarketData } from "./agent.server";
-import type { HedgeStepEvent, MarketEvent } from "../types";
+import { THOUGHT_CHARS, cleanThought, runHedgeAgent, splitThink, toolDoneLabel, toolStartLabel, type MarketData } from "./agent.server";
+import type { HedgeStepEvent, HedgeThoughtEvent, MarketEvent } from "../types";
 
 const NOW = new Date("2026-11-18T12:00:00Z");
 const brent: MarketEvent = {
@@ -27,14 +27,16 @@ const data: MarketData = {
   getBook: async () => ({ source: "gemini", bids: [{ price: 580_000, amount: 10 }], asks: [] }),
 };
 
-type Reply = { content?: string | null; calls?: { name: string; args: unknown }[] };
+type Reply = { content?: string | null; reasoning?: string; calls?: { name: string; args: unknown }[] };
 
-function mockClient(replies: Reply[]) {
+/** `sent` holds a JSON snapshot of the messages each call received (the loop mutates its array). */
+function mockClient(replies: Reply[], sent: string[] = []) {
   let i = 0;
   return {
     chat: {
       completions: {
-        create: async (): Promise<ChatCompletion> => {
+        create: async (p: { messages: unknown[] }): Promise<ChatCompletion> => {
+          sent.push(JSON.stringify(p.messages));
           const r = replies[Math.min(i++, replies.length - 1)]!;
           return {
             id: "x",
@@ -49,6 +51,7 @@ function mockClient(replies: Reply[]) {
                 message: {
                   role: "assistant",
                   content: r.content ?? null,
+                  ...(r.reasoning ? { reasoning_content: r.reasoning } : {}),
                   refusal: null,
                   tool_calls: r.calls?.map((c, n) => ({
                     id: `call_${i}_${n}`,
@@ -122,7 +125,7 @@ describe("runHedgeAgent onEvent", () => {
       ['Searching markets for "oil"', "1 event"],
       ["Reading Oil (Brent) price?", "1 contract"],
       ["Checking the order book for B-91", "1 level"],
-      ["Pricing No at 2x", expect.stringMatching(/^max \d/)],
+      ['Pricing No on "$91 or above" at 2x', expect.stringMatching(/^max \d/)],
       ["Thinking", "1 tool call"],
       ["Listing market categories", "1 category"],
       ["Thinking", "1 tool call"],
@@ -150,6 +153,78 @@ describe("runHedgeAgent onEvent", () => {
       },
     );
     expect(noisy).toEqual(plain);
+  });
+});
+
+describe("runHedgeAgent onThought", () => {
+  const run = async (replies: Reply[]) => {
+    const sent: string[] = [];
+    const steps: HedgeStepEvent[] = [];
+    const thoughts: HedgeThoughtEvent[] = [];
+    const r = await runHedgeAgent(
+      { messages: [{ role: "user", content: "laundromat" }] },
+      { client: mockClient(replies, sent), model: "m", data, now: () => NOW, onEvent: (e) => steps.push(e), onThought: (t) => thoughts.push(t) },
+    );
+    return { r, sent, steps, thoughts };
+  };
+  const search = [{ name: "search_markets", args: { search: "oil" } }];
+  const propose = [{ name: "propose_hedge", args: proposeArgs }];
+
+  it("emits the provider's reasoning field for the model step, ahead of content, and keeps it out of history and labels", async () => {
+    const { r, sent, steps, thoughts } = await run([
+      { reasoning: "REASONING-ONE gas costs track Brent", content: "Checking oil markets for a proxy.", calls: search },
+      { calls: propose },
+    ]);
+    expect(r.type).toBe("proposal");
+    expect(thoughts).toEqual([{ id: 1, text: "REASONING-ONE gas costs track Brent" }]);
+    expect(steps.find((s) => s.id === 1)).toMatchObject({ kind: "model" });
+    expect(sent[1]).not.toContain("REASONING-ONE");
+    // The assistant content was already part of the message, and stays exactly that.
+    expect(sent[1]).toContain("Checking oil markets for a proxy.");
+    for (const s of steps) expect(`${s.label} ${s.detail ?? ""}`).not.toMatch(/REASONING|Checking oil/);
+  });
+
+  it("uses the content alongside tool calls when there is no reasoning field", async () => {
+    const { thoughts, steps } = await run([{ content: "  Looking for\n oil markets.  ", calls: search }, { calls: propose }]);
+    expect(thoughts).toEqual([{ id: 1, text: "Looking for oil markets." }]);
+    for (const s of steps) expect(s.label).not.toContain("Looking");
+  });
+
+  it("unwraps a <think> block, and never sends it back or into a reply", async () => {
+    const { thoughts, sent } = await run([{ content: "<think>THINK-TEXT compare gas and oil</think>", calls: search }, { calls: propose }]);
+    expect(thoughts).toEqual([{ id: 1, text: "THINK-TEXT compare gas and oil" }]);
+    expect(sent[1]).not.toContain("THINK-TEXT");
+
+    const q = await run([{ content: "<think>THINK-TEXT unsure</think>Which city are you in?" }]);
+    // Nudged once (the mock repeats its reply), so one thought per model step.
+    expect(q.thoughts).toEqual([
+      { id: 1, text: "THINK-TEXT unsure" },
+      { id: 2, text: "THINK-TEXT unsure" },
+    ]);
+    expect(q.r).toEqual({ type: "question", question: "Which city are you in?" });
+    expect(q.sent.join("")).not.toContain("THINK-TEXT");
+  });
+
+  it("does not turn a plain-text reply into a thought, and still nudges", async () => {
+    const { r, thoughts, sent } = await run([{ content: "Which city are you in?" }]);
+    expect(thoughts).toEqual([]);
+    expect(sent).toHaveLength(2);
+    expect(r).toEqual({ type: "question", question: "Which city are you in?" });
+  });
+
+  it("skips empty and encrypted reasoning", async () => {
+    const { thoughts } = await run([{ reasoning: "[Some reasoning content is encrypted]", calls: search }, { reasoning: "   ", calls: propose }]);
+    expect(thoughts).toEqual([]);
+  });
+
+  it("cleans thought text: control characters, think tags, whitespace, 600 characters", () => {
+    expect(cleanThought("a\u0000b\u0007\u001b[31mc\t\n d <think>e</think>")).toBe("a b [31mc d e");
+    const long = cleanThought("word ".repeat(400));
+    expect(long.length).toBe(THOUGHT_CHARS);
+    expect(long.endsWith("…")).toBe(true);
+    expect(splitThink("plan</think>Answer")).toEqual({ think: "plan", rest: "Answer" });
+    expect(splitThink("Answer <think>x</think>")).toEqual({ think: "", rest: "Answer <think>x</think>" });
+    expect(splitThink("<think>unclosed")).toEqual({ think: "unclosed", rest: "" });
   });
 });
 

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { fmtLeverage, fmtPrice, fmtUsdc } from "@/lib/format";
 import { SSE_CONTENT_TYPE, readHedgeStream } from "@/lib/hedge/sse";
-import type { HedgeLeg, HedgeMessage, HedgeProposal as Proposal, HedgeResponse, HedgeStepEvent, HedgeStepKind } from "@/lib/types";
+import type { HedgeLeg, HedgeMessage, HedgeProposal as Proposal, HedgeResponse, HedgeStepEvent, HedgeThoughtEvent } from "@/lib/types";
+import { AgentTrace, type TraceItem, type TraceLive, reducedMotion } from "./AgentTrace";
 import { HedgeProposal } from "./HedgeProposal";
 
 const EXAMPLES = [
@@ -15,115 +16,16 @@ const EXAMPLES = [
 
 const MAX_HISTORY = 16;
 
-// Shown on the status line between steps and during a long model step. Real step labels from
-// the server take over whenever a tool runs.
-const VERBS = [
-  "Sizing up the exposure",
-  "Scanning markets",
-  "Reading the ladder",
-  "Checking the book",
-  "Pricing legs",
-  "Weighing leverage",
-  "Stress-testing the hedge",
-];
-const VERB_MS = 2_000;
-const LOG_LINES = 6;
 const TYPE_MS_PER_CHAR = 15;
 const TYPE_MAX_MS = 1_500;
 
-type Step = { id: number; kind: HedgeStepKind; label: string; detail?: string };
-
-// What the agent is doing for the request in flight.
-type Activity = {
-  startedAt: number;
-  active: (Step & { since: number }) | null;
-  idleSince: number; // when the last step finished (or the request started)
-  done: Step[];
-  announce: string; // the last real step label, for screen readers
-};
+// The request in flight: its trace so far, and the id its agent turn will get.
+type Activity = TraceLive & { turnId: number; items: TraceItem[] };
 
 // A conversation turn. Proposal turns keep a snapshot of the legs so the thread shows them as
 // positions; `content` is the short text the model sees as its own earlier reply. Agent turns
-// keep the steps that produced them.
-type Turn = HedgeMessage & { legs?: HedgeLeg[]; steps?: Step[]; seconds?: number };
-
-const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-function useClock(ms: number) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(t);
-  }, [ms]);
-  return now;
-}
-
-function StepList({ steps }: { steps: Step[] }) {
-  return (
-    <ul className="flex flex-col gap-1">
-      {steps.map((s) => (
-        <li key={s.id} className="row-new flex items-baseline justify-between gap-4 text-[13px] text-muted">
-          <span className="min-w-0 truncate">{s.label}</span>
-          {s.detail ? <span className="num shrink-0 text-[12px]">{s.detail}</span> : null}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** The live status line and the last few finished steps, while the agent works. */
-function AgentActivity({ activity }: { activity: Activity }) {
-  const now = useClock(500);
-  const { active } = activity;
-  // A running tool shows its label; a model step shows "Thinking" for its first VERB_MS, then
-  // hands over to the rotating verbs, as does the gap between steps.
-  const real = active && (active.kind === "tool" || now - active.since < VERB_MS);
-  const verbFrom = active ? active.since + VERB_MS : activity.idleSince;
-  const verb = VERBS[(activity.done.length + Math.floor(Math.max(0, now - verbFrom) / VERB_MS)) % VERBS.length]!;
-  const text = `${real ? active.label : verb}…`;
-  const seconds = Math.max(0, Math.floor((now - activity.startedAt) / 1000));
-  const log = activity.done.slice(-LOG_LINES);
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3 text-[15px]" role="status">
-        <span className="agent-pulse shrink-0 text-text" aria-hidden="true" />
-        {/* Screen readers hear real step labels only, not the rotating verbs. */}
-        <span className="sr-only">{activity.announce || "Working"}</span>
-        <span key={text} className="fade-in min-w-0 flex-1 truncate text-text-2" aria-hidden="true">
-          {text}
-        </span>
-        <span className="num shrink-0 text-[12px] text-muted" aria-hidden="true">
-          {seconds}s
-        </span>
-      </div>
-      {log.length ? (
-        <div aria-hidden="true">
-          <StepList steps={log} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** The steps behind a finished turn, collapsed. */
-function StepsSummary({ steps, seconds }: { steps: Step[]; seconds?: number }) {
-  return (
-    <details className="text-[12px] text-muted">
-      <summary className="cursor-pointer select-none">
-        {steps.length} step{steps.length === 1 ? "" : "s"}
-        {seconds !== undefined ? (
-          <>
-            {" "}
-            · <span className="num">{seconds}s</span>
-          </>
-        ) : null}
-      </summary>
-      <div className="mt-2">
-        <StepList steps={steps} />
-      </div>
-    </details>
-  );
-}
+// keep the trace that produced them. `id` keys the thread so rows keep their state.
+type Turn = HedgeMessage & { id: number; legs?: HedgeLeg[]; trace?: TraceItem[]; seconds?: number };
 
 /**
  * Types a new agent question out quickly. The full text is in the accessibility tree from the
@@ -190,13 +92,16 @@ export function HedgeAgent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
+  const [said, setSaid] = useState(""); // the latest agent answer, for screen readers
   const abort = useRef<AbortController | null>(null);
+  const lastId = useRef(0);
+  const newId = () => ++lastId.current;
   useEffect(() => () => abort.current?.abort(), []);
 
   const send = async (text: string) => {
     const content = text.trim();
     if (!content || loading) return;
-    const next = [...messages, { role: "user" as const, content }].slice(-MAX_HISTORY);
+    const next: Turn[] = [...messages, { id: newId(), role: "user" as const, content }].slice(-MAX_HISTORY);
     setMessages(next);
     setInput("");
     setError(null);
@@ -205,25 +110,31 @@ export function HedgeAgent() {
     const ctrl = new AbortController();
     abort.current = ctrl;
     const startedAt = Date.now();
-    setActivity({ startedAt, active: null, idleSince: startedAt, done: [], announce: "" });
-    const steps: Step[] = [];
+    const turnId = newId();
+    setActivity({ turnId, startedAt, active: null, idleSince: startedAt, items: [], announce: "" });
+    // The trace so far, kept here too so the finished turn gets it without waiting for a render.
+    let items: TraceItem[] = [];
     const onStep = (e: HedgeStepEvent) => {
       if (abort.current !== ctrl) return;
-      const step: Step = { id: e.id, kind: e.kind, label: e.label, ...(e.detail ? { detail: e.detail } : {}) };
       const at = Date.now();
-      // Model steps drive the live status line only; the log and the step count list tool work.
-      const logged = e.phase === "done" && e.kind !== "model";
-      if (logged) steps.push(step);
+      // Model steps drive the live status line only; tool steps are also rows of the trace.
+      if (e.kind === "tool") {
+        const row: TraceItem = { type: "tool", id: e.id, label: e.label, ...(e.detail ? { detail: e.detail } : {}), done: e.phase === "done" };
+        items = items.some((i) => i.type === "tool" && i.id === e.id) ? items.map((i) => (i.type === "tool" && i.id === e.id ? row : i)) : [...items, row];
+      }
+      const rows = items;
       setActivity((a) => {
         if (!a) return a;
-        if (e.phase === "start") return { ...a, active: { ...step, since: at }, announce: step.label };
-        return {
-          ...a,
-          active: a.active?.id === e.id ? null : a.active,
-          idleSince: a.active?.id === e.id ? at : a.idleSince,
-          done: logged ? [...a.done, step] : a.done,
-        };
+        if (e.phase === "start") return { ...a, items: rows, active: { id: e.id, kind: e.kind, label: e.label, since: at }, announce: e.label };
+        const ended = a.active?.id === e.id;
+        return { ...a, items: rows, active: ended ? null : a.active, idleSince: ended ? at : a.idleSince };
       });
+    };
+    const onThought = (t: HedgeThoughtEvent) => {
+      if (abort.current !== ctrl) return;
+      items = [...items, { type: "thought", id: t.id, text: t.text }];
+      const rows = items;
+      setActivity((a) => (a ? { ...a, items: rows } : a));
     };
     try {
       const res = await fetch("/api/hedge", {
@@ -236,13 +147,14 @@ export function HedgeAgent() {
       // a server without streaming) is the plain JSON body.
       const streamed = (res.headers.get("content-type") ?? "").includes(SSE_CONTENT_TYPE) && res.body;
       const data = streamed
-        ? await readHedgeStream(res.body!, onStep)
+        ? await readHedgeStream(res.body!, onStep, onThought)
         : ((await res.json().catch(() => null)) as HedgeResponse | null);
       if (!data) throw new Error(streamed ? "The hedge agent stopped before answering." : `The hedge agent did not answer (${res.status}).`);
       if (data.type === "error") throw new Error(data.error);
-      const trail = steps.length ? { steps, seconds: Math.round((Date.now() - startedAt) / 1000) } : {};
+      const trail = items.length ? { trace: items, seconds: Math.round((Date.now() - startedAt) / 1000) } : {};
       if (data.type === "question") {
-        setMessages((m) => [...m, { role: "assistant", content: data.question, ...trail }]);
+        setMessages((m) => [...m, { id: turnId, role: "assistant", content: data.question, ...trail }]);
+        setSaid(`Agent: ${data.question}`);
       } else {
         setProposal(data.proposal);
         const { legs } = data.proposal;
@@ -250,7 +162,8 @@ export function HedgeAgent() {
         const content = legs.length
           ? `Proposed: ${legs.map((l) => `${l.side} ${l.eventTitle}: ${l.label}, ${fmtUsdc(BigInt(l.margin))} USDC at ${fmtLeverage(l.leverage)}`).join("; ")}`
           : `Proposed no legs. ${data.proposal.notes[0] ?? ""}`;
-        setMessages((m) => [...m, { role: "assistant", content: content.slice(0, 1800), legs, ...trail }]);
+        setMessages((m) => [...m, { id: turnId, role: "assistant", content: content.slice(0, 1800), legs, ...trail }]);
+        setSaid(legs.length ? `Agent: proposed ${legs.length} position${legs.length === 1 ? "" : "s"}, shown below.` : "Agent: no matching market found.");
       }
     } catch (e) {
       if (ctrl.signal.aborted) return;
@@ -274,6 +187,7 @@ export function HedgeAgent() {
     setError(null);
     setLoading(false);
     setActivity(null);
+    setSaid("");
   };
 
   const started = messages.length > 0;
@@ -282,42 +196,44 @@ export function HedgeAgent() {
     ? "e.g. make it cheaper, or drop the oil leg"
     : "Describe what you want to protect against: what you hold or pay, how much, and your budget for the hedge.";
 
+  // One flat list so the in-flight trace and the finished turn's trace share a key: the same
+  // AgentTrace instance goes from live to collapsed.
+  const traceRow = (key: number, node: ReactNode) => (
+    <li key={`trace-${key}`} className="w-full max-w-[72ch] self-start px-4 py-1">
+      {node}
+    </li>
+  );
+  const thread: ReactNode[] = [];
+  messages.forEach((m, i) => {
+    if (m.trace?.length) thread.push(traceRow(m.id, <AgentTrace items={m.trace} seconds={m.seconds} />));
+    // The current proposal renders in full below the thread; only its trace stays here.
+    if (m.legs && i === lastProposal && proposal) return;
+    thread.push(
+      <li
+        key={m.id}
+        className={`${m.legs ? "w-full" : "whitespace-pre-wrap"} max-w-[72ch] rounded-md px-4 py-3 text-[15px] ${
+          m.role === "user" ? "self-end bg-raised" : "self-start border border-border text-text-2"
+        }`}
+      >
+        <span className="sr-only">{m.role === "user" ? "You: " : "Agent: "}</span>
+        {m.legs ? <ProposalTurn legs={m.legs} /> : m.role === "assistant" && i === messages.length - 1 ? <Typewriter text={m.content} /> : m.content}
+      </li>,
+    );
+  });
+  if (loading && activity) thread.push(traceRow(activity.turnId, <AgentTrace items={activity.items} live={activity} />));
+
   return (
     <div className="mt-8 flex flex-col gap-6">
       {started ? (
-        <ol className="flex flex-col gap-3" aria-label="Conversation" aria-live="polite">
-          {messages.map((m, i) =>
-            // The current proposal renders in full below the thread; only its steps stay here.
-            m.legs && i === lastProposal && proposal ? (
-              m.steps?.length ? (
-                <li key={i} className="self-start px-4">
-                  <StepsSummary steps={m.steps} seconds={m.seconds} />
-                </li>
-              ) : null
-            ) : (
-            <li
-              key={i}
-              className={`${m.legs ? "w-full" : "whitespace-pre-wrap"} max-w-[72ch] rounded-md px-4 py-3 text-[15px] ${
-                m.role === "user" ? "self-end bg-raised" : "self-start border border-border text-text-2"
-              }`}
-            >
-              <span className="sr-only">{m.role === "user" ? "You: " : "Agent: "}</span>
-              {m.legs ? <ProposalTurn legs={m.legs} /> : m.role === "assistant" && i === messages.length - 1 ? <Typewriter text={m.content} /> : m.content}
-              {m.steps?.length ? (
-                <div className="mt-3 whitespace-normal">
-                  <StepsSummary steps={m.steps} seconds={m.seconds} />
-                </div>
-              ) : null}
-            </li>
-            ),
-          )}
-          {loading && activity ? (
-            <li className="w-full max-w-[72ch] self-start px-4 py-3">
-              <AgentActivity activity={activity} />
-            </li>
-          ) : null}
+        // Not a live region: thoughts would flood it. Answers are announced by the line below
+        // and step labels by the trace's status line.
+        <ol className="flex flex-col gap-3" aria-label="Conversation">
+          {thread}
         </ol>
       ) : null}
+      <p className="sr-only" aria-live="polite">
+        {said}
+      </p>
 
       {proposal ? <HedgeProposal key={proposal.quotedAt} proposal={proposal} onChange={setProposal} locked={loading} /> : null}
 
