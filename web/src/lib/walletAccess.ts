@@ -66,6 +66,17 @@ export function walletSession(opts: { account: () => Address | undefined; reauth
   };
 }
 
+/**
+ * Whether eth_requestAccounts was not enough and the wallet's permission prompt is needed. It is
+ * when no account came back, or when the account the wallet just refused came back again: MetaMask
+ * answers eth_requestAccounts for an already-connected site without a prompt, so retrying with that
+ * account would only be refused again. wallet_requestPermissions always shows the prompt.
+ */
+export function needsPermissionPrompt(accounts: readonly Address[], refused: Address | undefined): boolean {
+  if (accounts.length === 0) return true;
+  return refused !== undefined && accounts.some((a) => a.toLowerCase() === refused.toLowerCase());
+}
+
 /** The account an action must send from; a missing one means no wallet is connected. */
 export function needAccount(account: Address | undefined): Address {
   if (!account) throw new Error("Connect a wallet first.");

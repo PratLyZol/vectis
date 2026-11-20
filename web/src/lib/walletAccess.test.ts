@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { UnauthorizedProviderError, UserRejectedRequestError, type Address } from "viem";
 import { errorMessage } from "./format";
-import { WALLET_ACCESS_MESSAGE, WalletAccessError, isUnauthorized, isUserRejected, walletSession } from "./walletAccess";
+import { WALLET_ACCESS_MESSAGE, WalletAccessError, isUnauthorized, isUserRejected, needsPermissionPrompt, walletSession } from "./walletAccess";
 
 const A = "0x00000000000000000000000000000000000000aA" as Address;
 const B = "0x00000000000000000000000000000000000000bB" as Address;
@@ -106,5 +106,14 @@ describe("walletSession", () => {
     const s = setup([boom]);
     await expect(s.run(s.action)).rejects.toBe(boom);
     expect(s.reauths()).toBe(0);
+  });
+});
+
+describe("needsPermissionPrompt", () => {
+  it("asks for the permission prompt when no account came back or the refused one came back again", () => {
+    expect(needsPermissionPrompt([], A)).toBe(true);
+    expect(needsPermissionPrompt([A.toLowerCase() as Address], A)).toBe(true);
+    expect(needsPermissionPrompt([B], A)).toBe(false);
+    expect(needsPermissionPrompt([B], undefined)).toBe(false);
   });
 });

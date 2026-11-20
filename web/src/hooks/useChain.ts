@@ -30,7 +30,7 @@ import { demo, demoVaultFigures, useDemoState } from "@/lib/demoStore";
 import type { Combo } from "@/lib/combo";
 import { errorMessage } from "@/lib/format";
 import { openWalletChooser } from "@/lib/walletChooser";
-import { WalletAccessError, needAccount, walletSession, type WalletRun } from "@/lib/walletAccess";
+import { WalletAccessError, needAccount, needsPermissionPrompt, walletSession, type WalletRun } from "@/lib/walletAccess";
 import { useCombos } from "./useMarketData";
 import type { Side } from "@/lib/math";
 import { STATUS, type MarketMeta, type PositionView, type Status } from "@/lib/positions";
@@ -49,7 +49,7 @@ const addressList = (v: unknown): Address[] =>
 
 /**
  * Ask the connected wallet for access again after a 4100: eth_requestAccounts (prompts to unlock
- * or reconnect), and wallet_requestPermissions only if that returns no account. wagmi's connection
+ * or reconnect), and wallet_requestPermissions when that was not enough (see needsPermissionPrompt). wagmi's connection
  * is then refreshed so the UI shows the account the wallet authorised, and the wallet is moved to
  * Arc. Resolves with that account; a rejected prompt (4001) rejects unchanged.
  */
@@ -58,7 +58,7 @@ async function reauthorizeWallet(config: WagmiConfig): Promise<Address> {
   const provider = (await connector?.getProvider()) as Eip1193 | undefined;
   if (!connector || !provider) throw new WalletAccessError();
   let accounts = addressList(await provider.request({ method: "eth_requestAccounts" }));
-  if (accounts.length === 0) {
+  if (needsPermissionPrompt(accounts, before)) {
     await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
     accounts = addressList(await provider.request({ method: "eth_accounts" }));
   }
