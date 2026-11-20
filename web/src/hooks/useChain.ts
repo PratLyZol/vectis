@@ -5,7 +5,7 @@
 // branch a hook takes never changes between renders.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { erc20Abi, erc4626Abi, parseEventLogs, type Address, type Hex } from "viem";
+import { erc20Abi, erc4626Abi, getAddress, parseEventLogs, type Address, type Hex } from "viem";
 import {
   useAccount,
   useConfig,
@@ -16,13 +16,21 @@ import {
   useReadContracts,
   useSwitchChain,
 } from "wagmi";
-import { readContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
+import {
+  getAccount,
+  readContract,
+  reconnect,
+  switchChain as switchChainAction,
+  waitForTransactionReceipt,
+  writeContract,
+} from "wagmi/actions";
 import { marginManagerAbi, lendingVaultAbi, priceOracleAbi } from "@/config/abis";
 import { contracts, isMock } from "@/config/contracts";
 import { demo, demoVaultFigures, useDemoState } from "@/lib/demoStore";
 import type { Combo } from "@/lib/combo";
 import { errorMessage } from "@/lib/format";
 import { openWalletChooser } from "@/lib/walletChooser";
+import { WalletAccessError, needAccount, walletSession, type WalletRun } from "@/lib/walletAccess";
 import { useCombos } from "./useMarketData";
 import type { Side } from "@/lib/math";
 import { STATUS, type MarketMeta, type PositionView, type Status } from "@/lib/positions";
@@ -32,12 +40,55 @@ const POLL = 5_000;
 const noopSubscribe = () => () => {};
 
 // ---------------------------------------------------------------------------------------------
+// Wallet access (EIP-1193 4100)
+
+type WagmiConfig = ReturnType<typeof useConfig>;
+type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
+const addressList = (v: unknown): Address[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => getAddress(x)) : [];
+
+/**
+ * Ask the connected wallet for access again after a 4100: eth_requestAccounts (prompts to unlock
+ * or reconnect), and wallet_requestPermissions only if that returns no account. wagmi's connection
+ * is then refreshed so the UI shows the account the wallet authorised, and the wallet is moved to
+ * Arc. Resolves with that account; a rejected prompt (4001) rejects unchanged.
+ */
+async function reauthorizeWallet(config: WagmiConfig): Promise<Address> {
+  const { connector, address: before } = getAccount(config);
+  const provider = (await connector?.getProvider()) as Eip1193 | undefined;
+  if (!connector || !provider) throw new WalletAccessError();
+  let accounts = addressList(await provider.request({ method: "eth_requestAccounts" }));
+  if (accounts.length === 0) {
+    await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+    accounts = addressList(await provider.request({ method: "eth_accounts" }));
+  }
+  const next = accounts[0];
+  if (!next) throw new WalletAccessError();
+  if (next !== before) await reconnect(config, { connectors: [connector] });
+  // Only send from an account wagmi now holds for this connection, never a stale one.
+  if (!getAccount(config).addresses?.includes(next)) throw new WalletAccessError();
+  if ((await connector.getChainId()) !== chainId) await switchChainAction(config, { chainId });
+  return next;
+}
+
+/** A fresh one-click wallet session: at most one re-authorisation and one retry. */
+function useWalletSession(): () => WalletRun {
+  const config = useConfig();
+  return useCallback(
+    () => walletSession({ account: () => getAccount(config).address, reauthorize: () => reauthorizeWallet(config) }),
+    [config],
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Wallet
 
 export function useWallet() {
   const { address, isConnected, chainId: walletChain } = useAccount();
   const { connect, connectors, isPending: connecting, error: connectError } = useConnect();
-  const { switchChain, isPending: switching, error: switchError } = useSwitchChain();
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
+  const [switchError, setSwitchError] = useState<unknown>(null);
+  const session = useWalletSession();
   const { disconnect } = useDisconnect();
   const wrongChain = isConnected && walletChain !== chainId;
   // Wallets that announced themselves (EIP-6963) are addressed directly. The generic injected
@@ -77,7 +128,11 @@ export function useWallet() {
       if (only) connectWith(only);
       else openWalletChooser();
     },
-    switchToArc: () => switchChain({ chainId }),
+    // A wallet that has not authorised the site may refuse the switch (4100): ask for access, retry once.
+    switchToArc: () => {
+      setSwitchError(null);
+      session()(() => switchChainAsync({ chainId })).catch((e: unknown) => setSwitchError(e));
+    },
     disconnect: () => disconnect(),
   };
 }
@@ -244,6 +299,7 @@ function useDemoPositions(): PositionsState {
 function useLivePositions(): PositionsState {
   const { address } = useAccount();
   const config = useConfig();
+  const session = useWalletSession();
   const queryClient = useQueryClient();
   const client = usePublicClient({ chainId });
   const [closingId, setClosingId] = useState<bigint | null>(null);
@@ -326,13 +382,16 @@ function useLivePositions(): PositionsState {
       setError(null);
       setClosingId(id);
       try {
-        const hash = await writeContract(config, {
-          abi: marginManagerAbi,
-          address: contracts.marginManager,
-          functionName: "closePosition",
-          args: [id],
-          chainId,
-        });
+        const hash = await session()((account) =>
+          writeContract(config, {
+            abi: marginManagerAbi,
+            address: contracts.marginManager,
+            functionName: "closePosition",
+            args: [id],
+            account: needAccount(account),
+            chainId,
+          }),
+        );
         await waitForTransactionReceipt(config, { hash, chainId });
         await queryClient.invalidateQueries();
       } catch (e) {
@@ -341,7 +400,7 @@ function useLivePositions(): PositionsState {
         setClosingId(null);
       }
     },
-    [config, queryClient],
+    [config, queryClient, session],
   );
 
   return {
@@ -381,8 +440,6 @@ const phaseOf = (base: OpenPhase, position: PositionView | null): OpenPhase => {
   return position.status === STATUS.PendingOpen ? "pending" : "filled";
 };
 
-type WagmiConfig = ReturnType<typeof useConfig>;
-
 /** Approve the MarginManager for `needed` USDC unless the current allowance already covers it. */
 async function ensureMarginAllowance(
   config: WagmiConfig,
@@ -404,6 +461,7 @@ async function ensureMarginAllowance(
     address: contracts.usdc,
     functionName: "approve",
     args: [contracts.marginManager, needed],
+    account: owner,
     chainId,
   });
   await waitForTransactionReceipt(config, { hash: approveHash, chainId });
@@ -428,6 +486,7 @@ async function openPositionTx(
     address: contracts.marginManager,
     functionName: "openPosition",
     args: [args.marketId, args.side, args.margin, args.leverage],
+    account: owner,
     chainId,
   });
   const receipt = await waitForTransactionReceipt(config, { hash, chainId });
@@ -462,6 +521,7 @@ function useDemoOpen(): OpenState {
 function useLiveOpen(): OpenState {
   const { address } = useAccount();
   const config = useConfig();
+  const session = useWalletSession();
   const queryClient = useQueryClient();
   const [base, setBase] = useState<OpenPhase>("idle");
   const [id, setId] = useState<bigint | null>(null);
@@ -484,7 +544,8 @@ function useLiveOpen(): OpenState {
       setError(null);
       setId(null);
       try {
-        const newId = await openPositionTx(config, address, args, { onPhase: setBase });
+        // A retry after re-authorisation re-reads the allowance, so a landed approval is not repeated.
+        const newId = await session()((account) => openPositionTx(config, needAccount(account), args, { onPhase: setBase }));
         setId(newId);
         setBase("pending");
         await queryClient.invalidateQueries();
@@ -493,7 +554,7 @@ function useLiveOpen(): OpenState {
         setError(errorMessage(e));
       }
     },
-    [address, config, queryClient],
+    [address, config, queryClient, session],
   );
 
   const reset = useCallback(() => {
@@ -675,18 +736,34 @@ function useLiveOpenBatch(): OpenBatchState {
   const config = useConfig();
   const queryClient = useQueryClient();
 
+  // One wallet session per run or retry (approve always comes first): a 4100 anywhere in it asks
+  // for access once and retries that step, so the run resumes at the leg that failed.
+  const run = useRef<WalletRun | null>(null);
+  const approvedFor = useRef<Address | null>(null);
+  const session = useWalletSession();
+
   // One approval for everything still to open, so the wallet prompts once rather than per leg.
   const approve = useCallback(
     async (items: BatchItem[], legs: BatchLeg[], onApproving: () => void) => {
       if (!address) throw new Error("Connect a wallet first.");
-      await ensureMarginAllowance(config, address, batchApproval(items, legs), onApproving);
+      run.current = session();
+      approvedFor.current = null;
+      await run.current(async (account) => {
+        const owner = needAccount(account);
+        await ensureMarginAllowance(config, owner, batchApproval(items, legs), onApproving);
+        approvedFor.current = owner;
+      });
     },
-    [address, config],
+    [address, config, session],
   );
   const openOne = useCallback(
     (item: BatchItem) => {
-      if (!address) return Promise.reject(new Error("Connect a wallet first."));
-      return openPositionTx(config, address, item.args, { approve: false });
+      if (!address || !run.current) return Promise.reject(new Error("Connect a wallet first."));
+      // If the wallet authorised a different account mid-run, that account approves its own legs.
+      return run.current((account) => {
+        const owner = needAccount(account);
+        return openPositionTx(config, owner, item.args, { approve: owner !== approvedFor.current });
+      });
     },
     [address, config],
   );
@@ -786,6 +863,7 @@ function useDemoVault(): VaultState {
 function useLiveVault(): VaultState {
   const { address } = useAccount();
   const config = useConfig();
+  const session = useWalletSession();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<VaultState["busy"]>(null);
   const [error, setError] = useState<string | null>(null);
@@ -840,41 +918,35 @@ function useLiveVault(): VaultState {
       if (!address) return false;
       setError(null);
       try {
-        if (kind === "deposit") {
-          const allowance = await readContract(config, {
-            abi: erc20Abi,
-            address: contracts.usdc,
-            functionName: "allowance",
-            args: [address, contracts.lendingVault],
-            chainId,
-          });
-          if (allowance < assets) {
-            setBusy("approve");
-            const approveHash = await writeContract(config, {
+        // A retry after re-authorisation re-reads the allowance, so a landed approval is not repeated.
+        const hash = await session()(async (account) => {
+          const owner = needAccount(account);
+          if (kind === "deposit") {
+            const allowance = await readContract(config, {
               abi: erc20Abi,
               address: contracts.usdc,
-              functionName: "approve",
-              args: [contracts.lendingVault, assets],
+              functionName: "allowance",
+              args: [owner, contracts.lendingVault],
               chainId,
             });
-            await waitForTransactionReceipt(config, { hash: approveHash, chainId });
-          }
-        }
-        setBusy(kind);
-        const hash =
-          kind === "deposit"
-            ? await writeContract(config, {
-                ...vault,
-                abi: erc4626Abi,
-                functionName: "deposit",
-                args: [assets, address],
-              })
-            : await writeContract(config, {
-                ...vault,
-                abi: erc4626Abi,
-                functionName: "withdraw",
-                args: [assets, address, address],
+            if (allowance < assets) {
+              setBusy("approve");
+              const approveHash = await writeContract(config, {
+                abi: erc20Abi,
+                address: contracts.usdc,
+                functionName: "approve",
+                args: [contracts.lendingVault, assets],
+                account: owner,
+                chainId,
               });
+              await waitForTransactionReceipt(config, { hash: approveHash, chainId });
+            }
+          }
+          setBusy(kind);
+          return kind === "deposit"
+            ? writeContract(config, { ...vault, abi: erc4626Abi, functionName: "deposit", args: [assets, owner], account: owner })
+            : writeContract(config, { ...vault, abi: erc4626Abi, functionName: "withdraw", args: [assets, owner, owner], account: owner });
+        });
         const receipt = await waitForTransactionReceipt(config, { hash, chainId });
         if (receipt.status !== "success") throw new Error("The transaction reverted.");
         await queryClient.invalidateQueries();
@@ -887,7 +959,7 @@ function useLiveVault(): VaultState {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [address, config, queryClient],
+    [address, config, queryClient, session],
   );
 
   return {

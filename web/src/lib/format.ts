@@ -1,4 +1,5 @@
 import { formatUnits, parseUnits } from "viem";
+import { WALLET_ACCESS_MESSAGE, isUnauthorized } from "./walletAccess";
 
 const group = (s: string) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
@@ -90,6 +91,8 @@ export const unixSeconds = (iso: string | null | undefined): bigint => {
 
 /** A short, plain message from a wallet or RPC error. */
 export function errorMessage(e: unknown): string {
+  // The wallet has not authorised this site or account (4100): say what to do, not the raw text.
+  if (isUnauthorized(e)) return WALLET_ACCESS_MESSAGE;
   if (typeof e === "object" && e !== null) {
     const o = e as { shortMessage?: unknown; message?: unknown };
     if (typeof o.shortMessage === "string") return o.shortMessage;

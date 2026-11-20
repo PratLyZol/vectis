@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Hex } from "viem";
+import { UnauthorizedProviderError, type Address, type Hex } from "viem";
+import { WALLET_ACCESS_MESSAGE, walletSession } from "@/lib/walletAccess";
 import { batchApproval, firstUnopened, runBatchLegs, type BatchItem, type BatchLeg } from "./useChain";
 
 const item = (margin: bigint, fee: bigint): BatchItem => ({
@@ -79,5 +80,67 @@ describe("runBatchLegs", () => {
     );
     expect(opened).toEqual([1]);
     expect(legs.map((l) => l.positionId)).toEqual([5n, 6n]);
+  });
+});
+
+// The live batch hook: one wallet session per run, approve first, then each leg through it.
+describe("batch open with wallet re-authorisation", () => {
+  const A = "0x00000000000000000000000000000000000000aA" as Address;
+  const deny = () => ({ name: "ContractFunctionExecutionError", cause: new UnauthorizedProviderError(new Error("x")) });
+
+  function harness(failAt: number[]) {
+    const sent: number[] = [];
+    let approvals = 0;
+    let reauths = 0;
+    const session = () =>
+      walletSession({
+        account: () => A,
+        reauthorize: async () => {
+          reauths++;
+          return A;
+        },
+      });
+    const runOnce = async (items: BatchItem[], start: BatchLeg[]) => {
+      const run = session();
+      await run(async () => {
+        approvals++;
+      });
+      return runBatchLegs(items, start, (_, i) =>
+        run(async () => {
+          sent.push(i);
+          if (failAt[0] === sent.length - 1) {
+            failAt.shift();
+            throw deny();
+          }
+          return BigInt(100 + i);
+        }),
+        () => {},
+      );
+    };
+    return { runOnce, sent, approvals: () => approvals, reauths: () => reauths };
+  }
+  const items = [item(1n, 0n), item(2n, 0n), item(3n, 0n)];
+
+  it("re-authorises once and resumes at the leg that failed, without resending earlier legs or approving again", async () => {
+    const h = harness([1]); // the second send (leg 1) is refused once
+    const legs = await h.runOnce(items, []);
+    expect(h.sent).toEqual([0, 1, 1, 2]);
+    expect(h.reauths()).toBe(1);
+    expect(h.approvals()).toBe(1);
+    expect(legs.map((l) => l.status)).toEqual(["opened", "opened", "opened"]);
+  });
+
+  it("stops with the plain message on a second refusal, and a retry starts at that leg", async () => {
+    const h = harness([1, 3]); // leg 1 refused, re-authorised; leg 2 refused again
+    const legs = await h.runOnce(items, []);
+    expect(legs.map((l) => l.status)).toEqual(["opened", "opened", "failed"]);
+    expect(legs[2]!.error).toBe(WALLET_ACCESS_MESSAGE);
+    expect(h.reauths()).toBe(1);
+    const resumed = await h.runOnce(
+      items,
+      legs.map((l) => (l.status === "opened" ? l : { status: "pending" })),
+    );
+    expect(h.sent.slice(4)).toEqual([2]);
+    expect(resumed.map((l) => l.status)).toEqual(["opened", "opened", "opened"]);
   });
 });
