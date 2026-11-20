@@ -2,7 +2,7 @@
 // UnauthorizedProviderError). That happens when wagmi restored a connection from storage but the
 // wallet has since locked, revoked the site or moved to an account the site was never given.
 // Instead of failing, ask the wallet for access again and retry the action once.
-import type { Address } from "viem";
+import { getAddress, isAddress, type Address } from "viem";
 
 export const WALLET_ACCESS_MESSAGE =
   "Your wallet has not given this site access to the selected account. Open your wallet and connect it, then try again.";
@@ -66,15 +66,33 @@ export function walletSession(opts: { account: () => Address | undefined; reauth
   };
 }
 
+export type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
+
+export const addressList = (v: unknown): Address[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && isAddress(x, { strict: false })).map((x) => getAddress(x)) : [];
+
+const listed = (accounts: readonly Address[], a: Address | undefined) => a !== undefined && accounts.some((x) => x.toLowerCase() === a.toLowerCase());
+
 /**
- * Whether eth_requestAccounts was not enough and the wallet's permission prompt is needed. It is
- * when no account came back, or when the account the wallet just refused came back again: MetaMask
- * answers eth_requestAccounts for an already-connected site without a prompt, so retrying with that
- * account would only be refused again. wallet_requestPermissions always shows the prompt.
+ * Ask the wallet for access after it refused `refused` with a 4100; resolves with the accounts it
+ * then exposes. eth_requestAccounts first: it unlocks a locked wallet or reconnects the site. The
+ * permission prompt (wallet_requestPermissions) follows only when that cannot have helped: the
+ * refused account was already listed by eth_accounts beforehand (the wallet claims it is
+ * permitted, so the same answer would be refused again; MetaMask returns it without a prompt), or
+ * no account came back. A locked wallet lists nothing before and the account after, so it gets one
+ * prompt. If the permission prompt is unsupported (4200, -32601) or already open (-32002), carry on
+ * with what the wallet exposes; only a rejection (4001) stops here.
  */
-export function needsPermissionPrompt(accounts: readonly Address[], refused: Address | undefined): boolean {
-  if (accounts.length === 0) return true;
-  return refused !== undefined && accounts.some((a) => a.toLowerCase() === refused.toLowerCase());
+export async function requestAccess(provider: Eip1193, refused: Address | undefined): Promise<Address[]> {
+  const before = addressList(await provider.request({ method: "eth_accounts" }).catch(() => []));
+  const accounts = addressList(await provider.request({ method: "eth_requestAccounts" }));
+  if (accounts.length > 0 && !listed(before, refused)) return accounts;
+  try {
+    await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+  } catch (e) {
+    if (isUserRejected(e)) throw e;
+  }
+  return addressList(await provider.request({ method: "eth_accounts" }));
 }
 
 /** The account an action must send from; a missing one means no wallet is connected. */

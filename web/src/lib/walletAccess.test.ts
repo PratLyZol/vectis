@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { UnauthorizedProviderError, UserRejectedRequestError, type Address } from "viem";
+import { UnauthorizedProviderError, UserRejectedRequestError, getAddress, type Address } from "viem";
 import { errorMessage } from "./format";
-import { WALLET_ACCESS_MESSAGE, WalletAccessError, isUnauthorized, isUserRejected, needsPermissionPrompt, walletSession } from "./walletAccess";
+import { WALLET_ACCESS_MESSAGE, WalletAccessError, isUnauthorized, isUserRejected, requestAccess, walletSession, type Eip1193 } from "./walletAccess";
 
-const A = "0x00000000000000000000000000000000000000aA" as Address;
-const B = "0x00000000000000000000000000000000000000bB" as Address;
+const A = getAddress("0x00000000000000000000000000000000000000aa");
+const B = getAddress("0x00000000000000000000000000000000000000bb");
 
 const unauthorized = () => new UnauthorizedProviderError(new Error("not authorized"));
 // What wagmi's writeContract throws: viem's ContractFunctionExecutionError around the provider error.
@@ -109,11 +109,95 @@ describe("walletSession", () => {
   });
 });
 
-describe("needsPermissionPrompt", () => {
-  it("asks for the permission prompt when no account came back or the refused one came back again", () => {
-    expect(needsPermissionPrompt([], A)).toBe(true);
-    expect(needsPermissionPrompt([A.toLowerCase() as Address], A)).toBe(true);
-    expect(needsPermissionPrompt([B], A)).toBe(false);
-    expect(needsPermissionPrompt([B], undefined)).toBe(false);
+/**
+ * A fake EIP-1193 wallet. `before` is what eth_accounts lists until a prompt is answered; each
+ * prompt (eth_requestAccounts or wallet_requestPermissions) then exposes `after`, or throws.
+ */
+function wallet(opts: { before: Address[]; after: Address[]; permissions?: unknown }) {
+  const methods: string[] = [];
+  let exposed = opts.before;
+  const provider: Eip1193 = {
+    request: async ({ method }) => {
+      methods.push(method);
+      if (method === "eth_accounts") return exposed;
+      if (method === "eth_requestAccounts") {
+        exposed = opts.after;
+        return exposed;
+      }
+      if (method === "wallet_requestPermissions") {
+        if (opts.permissions) throw opts.permissions;
+        exposed = opts.after;
+        return [{ parentCapability: "eth_accounts" }];
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const prompts = () => methods.filter((m) => m === "eth_requestAccounts" || m === "wallet_requestPermissions");
+  return { provider, methods, prompts };
+}
+
+/** One Buy click: the send is refused (4100) until the wallet has prompted, then succeeds. */
+async function click(w: ReturnType<typeof wallet>, stillRefused = false) {
+  const sends: (Address | undefined)[] = [];
+  const run = walletSession({
+    account: () => A,
+    reauthorize: async () => {
+      const next = (await requestAccess(w.provider, A))[0];
+      if (!next) throw new WalletAccessError();
+      return next;
+    },
+  });
+  const result = await run(async (account) => {
+    sends.push(account);
+    if (sends.length === 1 || stillRefused) throw unauthorized();
+    return "hash";
+  }).catch((e: unknown) => e);
+  return { result, sends };
+}
+
+describe("requestAccess", () => {
+  it("locked then unlocked: one unlock prompt, no permission prompt, and the retry succeeds", async () => {
+    const w = wallet({ before: [], after: [A] });
+    const { result, sends } = await click(w);
+    expect(result).toBe("hash");
+    expect(w.prompts()).toEqual(["eth_requestAccounts"]);
+    expect(sends).toEqual([A, A]);
+  });
+
+  it("escalates once to the permission prompt when the refused account was already listed", async () => {
+    const w = wallet({ before: [A], after: [B] });
+    const { result, sends } = await click(w);
+    expect(result).toBe("hash");
+    expect(w.prompts()).toEqual(["eth_requestAccounts", "wallet_requestPermissions"]);
+    expect(sends).toEqual([A, B]);
+  });
+
+  it("escalates when no account comes back", async () => {
+    const w = wallet({ before: [], after: [] });
+    const { result, sends } = await click(w);
+    expect(w.prompts()).toEqual(["eth_requestAccounts", "wallet_requestPermissions"]);
+    expect(errorMessage(result)).toBe(WALLET_ACCESS_MESSAGE);
+    expect(sends).toHaveLength(1);
+  });
+
+  for (const [what, err] of [
+    ["unsupported (4200)", { code: 4200, message: "The Provider does not support the requested method." }],
+    ["unsupported (-32601)", { code: -32601, message: "Method not found" }],
+    ["already pending (-32002)", { code: -32002, message: "Request of type 'wallet_requestPermissions' already pending" }],
+  ] as const) {
+    it(`falls through when the permission prompt is ${what}: no raw error`, async () => {
+      const w = wallet({ before: [A], after: [A], permissions: err });
+      const { result, sends } = await click(w, true);
+      // Retried with what the wallet exposes; refused again, so the plain message, never the raw text.
+      expect(sends).toEqual([A, A]);
+      expect(errorMessage(result)).toBe(WALLET_ACCESS_MESSAGE);
+    });
+  }
+
+  it("stops without a retry when the permission prompt is rejected (4001)", async () => {
+    const w = wallet({ before: [A], after: [A], permissions: rejected() });
+    const { result, sends } = await click(w);
+    expect(isUserRejected(result)).toBe(true);
+    expect(sends).toHaveLength(1);
   });
 });

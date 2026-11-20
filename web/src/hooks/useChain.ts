@@ -5,7 +5,7 @@
 // branch a hook takes never changes between renders.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { erc20Abi, erc4626Abi, getAddress, parseEventLogs, type Address, type Hex } from "viem";
+import { erc20Abi, erc4626Abi, parseEventLogs, type Address, type Hex } from "viem";
 import {
   useAccount,
   useConfig,
@@ -30,7 +30,7 @@ import { demo, demoVaultFigures, useDemoState } from "@/lib/demoStore";
 import type { Combo } from "@/lib/combo";
 import { errorMessage } from "@/lib/format";
 import { openWalletChooser } from "@/lib/walletChooser";
-import { WalletAccessError, needAccount, needsPermissionPrompt, walletSession, type WalletRun } from "@/lib/walletAccess";
+import { WalletAccessError, needAccount, requestAccess, walletSession, type Eip1193, type WalletRun } from "@/lib/walletAccess";
 import { useCombos } from "./useMarketData";
 import type { Side } from "@/lib/math";
 import { STATUS, type MarketMeta, type PositionView, type Status } from "@/lib/positions";
@@ -43,13 +43,10 @@ const noopSubscribe = () => () => {};
 // Wallet access (EIP-1193 4100)
 
 type WagmiConfig = ReturnType<typeof useConfig>;
-type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
-const addressList = (v: unknown): Address[] =>
-  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => getAddress(x)) : [];
 
 /**
- * Ask the connected wallet for access again after a 4100: eth_requestAccounts (prompts to unlock
- * or reconnect), and wallet_requestPermissions when that was not enough (see needsPermissionPrompt). wagmi's connection
+ * Ask the connected wallet for access again after a 4100 (requestAccess: one unlock or reconnect
+ * prompt, and the permission prompt only when that cannot have helped). wagmi's connection
  * is then refreshed so the UI shows the account the wallet authorised, and the wallet is moved to
  * Arc. Resolves with that account; a rejected prompt (4001) rejects unchanged.
  */
@@ -57,12 +54,7 @@ async function reauthorizeWallet(config: WagmiConfig): Promise<Address> {
   const { connector, address: before } = getAccount(config);
   const provider = (await connector?.getProvider()) as Eip1193 | undefined;
   if (!connector || !provider) throw new WalletAccessError();
-  let accounts = addressList(await provider.request({ method: "eth_requestAccounts" }));
-  if (needsPermissionPrompt(accounts, before)) {
-    await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
-    accounts = addressList(await provider.request({ method: "eth_accounts" }));
-  }
-  const next = accounts[0];
+  const next = (await requestAccess(provider, before))[0];
   if (!next) throw new WalletAccessError();
   if (next !== before) await reconnect(config, { connectors: [connector] });
   // Only send from an account wagmi now holds for this connection, never a stale one.
