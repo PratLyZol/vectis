@@ -4,7 +4,7 @@
 
 export const W = 1920;
 export const H = 1080;
-export const DURATION = 43.2;
+export const DURATION = 46.8;
 
 export type Fonts = { sans: string; mono: string };
 type Pt = [number, number];
@@ -409,17 +409,110 @@ function sceneChart(c: Ctx, t: number, f: Fonts) {
   glitch(c, u, u < 0.12 ? 1 : 0);
 }
 
-// 27.6 to 32.8: the hedge agent. A typed exposure becomes proposed positions.
-// The prompt and both legs are a real proposal returned by the agent on production on 2026-11-20.
+// 27.6 to 36.4: the hedge agent. A typed exposure, the agent's trace, then proposed positions.
+// The prompt, the trace and both legs come from a real run of the agent on production on 2026-11-20.
 const HEDGE_PROMPT = "I HOLD 20 ETH AND I'M WORRIED ABOUT A DROP BEFORE THE END OF THE MONTH. BUDGET $500.";
 const HEDGE_LEGS: [string, string, string, string][] = [
   ["NO", "ETH on November 30: $1,750 or above", "$300  1x", "DIRECT"],
   ["NO", "ETH on November 30: $1,500 or above", "$200  1x", "DIRECT"],
 ];
 
+// The trace rows, in order. A step's detail lands HEDGE_DONE after the row enters.
+const HEDGE_TRACE: ({ kind: "thought"; text: string } | { kind: "step"; label: string; detail: string })[] = [
+  { kind: "thought", text: "Find ETH markets." },
+  { kind: "step", label: 'Searching markets for "ETH"', detail: "25 events" },
+  { kind: "thought", text: "The Nov 30 event fits the horizon. Get full ladder." },
+  { kind: "step", label: "Reading ETH price on November 30", detail: "8 contracts" },
+  { kind: "step", label: 'Pricing No on "$1,750 or above" at 1x', detail: "max 4x" },
+  { kind: "step", label: 'Pricing No on "$1,500 or above" at 1x', detail: "max 1x" },
+  { kind: "step", label: "Validating the proposal against live prices", detail: "2 legs" },
+];
+const HEDGE_ROW0 = 2.0; // first row enters
+const HEDGE_STAGGER = 0.4;
+const HEDGE_DONE = 0.25;
+const HEDGE_COLLAPSE = 5.2; // rows fold away into the summary line
+const HEDGE_LEGS_AT = 6.0;
+const HEDGE_SECONDS = 13;
+const HEDGE_STEPS = HEDGE_TRACE.filter((r) => r.kind === "step").length;
+
+function hedgeTrace(c: Ctx, t: number, f: Fonts) {
+  const lastDone = HEDGE_ROW0 + (HEDGE_TRACE.length - 1) * HEDGE_STAGGER + HEDGE_DONE;
+  const fold = inOut(seg(t, HEDGE_COLLAPSE, HEDGE_COLLAPSE + 0.3));
+  const headY = 310;
+  // Header: a node, the title and the elapsed counter, then the one-line summary in its place.
+  const head = out(seg(t, 1.8, 2.1)) * (1 - seg(t, HEDGE_COLLAPSE, HEDGE_COLLAPSE + 0.2));
+  if (head > 0) {
+    const secs = Math.floor(HEDGE_SECONDS * seg(t, 1.8, lastDone));
+    const on = t < lastDone && Math.floor(t * 4) % 2 === 0;
+    c.save();
+    c.globalAlpha = head;
+    c.strokeStyle = "#fff";
+    c.lineWidth = 2;
+    c.strokeRect(151, headY - 7, 14, 14);
+    if (on || t >= lastDone) {
+      c.fillStyle = "#fff";
+      c.fillRect(151, headY - 7, 14, 14);
+    }
+    label(c, "AGENT TRACE", 190, headY, `400 22px ${f.mono}`, "#808080", "left", 6);
+    label(c, `${secs}s`, W - 150, headY, `500 26px ${f.mono}`, "#fff", "right", 2);
+    c.restore();
+  }
+  const sum = out(seg(t, HEDGE_COLLAPSE + 0.15, HEDGE_COLLAPSE + 0.45));
+  if (sum > 0) {
+    c.fillStyle = white(sum);
+    c.fillRect(151, headY - 7, 14, 14);
+    label(c, "WORKED FOR " + HEDGE_SECONDS + "s · " + HEDGE_STEPS + " STEPS", 190, headY, `400 22px ${f.mono}`, `rgba(128,128,128,${sum})`, "left", 6);
+  }
+  if (fold >= 1) return;
+  // Rows on a rail: steps have a square node (outlined while running, filled when done).
+  const lift = fold * 40;
+  const rows: number[] = [];
+  let y = 380;
+  for (const row of HEDGE_TRACE) {
+    const h = row.kind === "step" ? 76 : 60;
+    rows.push(y + h / 2);
+    y += h;
+  }
+  // The rail runs down to the newest row, under the nodes.
+  const shown = HEDGE_TRACE.filter((_, i) => t >= HEDGE_ROW0 + i * HEDGE_STAGGER).length;
+  if (shown > 0) {
+    c.fillStyle = `rgba(80,80,80,${1 - fold})`;
+    c.fillRect(157, 350 - lift, 2, (rows[shown - 1] ?? 350) - 350);
+  }
+  HEDGE_TRACE.forEach((row, i) => {
+    const at = HEDGE_ROW0 + i * HEDGE_STAGGER;
+    const p = out(seg(t, at, at + 0.3));
+    const cy = rows[i] ?? 0;
+    if (p <= 0) return;
+    const ry = cy + (1 - p) * 16 - lift;
+    c.save();
+    c.globalAlpha = p * (1 - fold);
+    if (row.kind === "thought") {
+      const words = row.text.split(" ");
+      const n = Math.ceil(seg(t, at, at + 0.45) * words.length);
+      label(c, words.slice(0, n).join(" "), 200, ry, `400 26px ${f.sans}`, "#8c8c8c", "left", 0);
+    } else {
+      const done = t >= at + HEDGE_DONE;
+      c.fillStyle = "#000";
+      c.fillRect(151, ry - 7, 14, 14);
+      c.strokeStyle = "#fff";
+      c.lineWidth = 2;
+      c.strokeRect(151, ry - 7, 14, 14);
+      if (done) {
+        c.fillStyle = "#fff";
+        c.fillRect(151, ry - 7, 14, 14);
+      }
+      label(c, row.label, 200, ry, `500 36px ${f.sans}`, "#fff", "left", -0.5);
+      const d = out(seg(t, at + HEDGE_DONE, at + HEDGE_DONE + 0.2));
+      if (d > 0) label(c, row.detail, W - 150, ry, `400 24px ${f.mono}`, `rgba(128,128,128,${d})`, "right", 3);
+    }
+    c.restore();
+  });
+}
+
 function sceneHedge(c: Ctx, t: number, f: Fonts) {
   const typed = Math.floor(seg(t, 0.2, 1.8) * HEDGE_PROMPT.length);
-  const lift = inOut(seg(t, 2.0, 2.4)) * 60;
+  const lift = inOut(seg(t, 1.8, 2.2)) * 60;
   const text = `> ${HEDGE_PROMPT.slice(0, typed)}`;
   label(c, text, 150, 300 - lift, `500 26px ${f.mono}`, "#fff", "left", 3);
   if (t < 2.2 && Math.floor(t * 5) % 2 === 0) {
@@ -428,14 +521,9 @@ function sceneHedge(c: Ctx, t: number, f: Fonts) {
     c.fillStyle = "#fff";
     c.fillRect(150 + c.measureText(text).width + 6, 300 - lift - 17, 16, 34);
   }
-  if (t >= 1.8 && t < 2.4) {
-    // The search: a strip of dots lit from the left.
-    const head = seg(t, 1.8, 2.4) * 60;
-    for (let i = 0; i < 60; i++) dot(c, 156 + i * 27, 380, 8, i <= head ? 0.95 : 0.25);
-    label(c, "FINDING MARKETS", 150, 440, `400 22px ${f.mono}`, "#808080", "left", 6);
-  }
+  hedgeTrace(c, t, f);
   HEDGE_LEGS.forEach(([side, title, size, kind], i) => {
-    const p = out(seg(t, 2.4 + i * 0.3, 2.9 + i * 0.3));
+    const p = out(seg(t, HEDGE_LEGS_AT + i * 0.3, HEDGE_LEGS_AT + 0.5 + i * 0.3));
     if (p <= 0) return;
     const y = 420 + i * 170;
     const x = 150 + (1 - p) * 70;
@@ -455,11 +543,11 @@ function sceneHedge(c: Ctx, t: number, f: Fonts) {
     c.stroke();
     c.restore();
   });
-  const close = out(seg(t, 3.5, 3.9));
+  const close = out(seg(t, 7.1, 7.5));
   label(c, "ONE APPROVAL OPENS BOTH", 150, 850 + (1 - close) * 30, `500 84px ${f.sans}`, white(close), "left", -2);
-  label(c, "YOU REVIEW AND CONFIRM EVERY POSITION", 150, 940, `400 22px ${f.mono}`, `rgba(128,128,128,${out(seg(t, 3.9, 4.3))})`, "left", 6);
+  label(c, "YOU REVIEW AND CONFIRM EVERY POSITION", 150, 940, `400 22px ${f.mono}`, `rgba(128,128,128,${out(seg(t, 7.5, 7.9))})`, "left", 6);
   hud(c, t + 27.6, f, "HEDGE AGENT / PLAIN ENGLISH IN, POSITIONS OUT");
-  glitch(c, t, t < 0.12 || (t > 2.4 && t < 2.55) ? 1 : 0);
+  glitch(c, t, t < 0.12 || (t > HEDGE_LEGS_AT && t < HEDGE_LEGS_AT + 0.15) ? 1 : 0);
 }
 
 function horizon(c: Ctx, t: number, alpha: number) {
@@ -478,7 +566,7 @@ function horizon(c: Ctx, t: number, alpha: number) {
   c.fill();
 }
 
-// 32.8 to 36.8: the claim.
+// 36.4 to 40.4: the claim.
 function sceneClaim(c: Ctx, t: number, f: Fonts) {
   horizon(c, t, out(seg(t, 0, 0.8)));
   const s = 1.18 - inOut(seg(t, 0, 4)) * 0.26;
@@ -512,7 +600,7 @@ function mark(c: Ctx, x: number, y: number, s: number) {
   c.stroke();
 }
 
-// 36.8 to 43.2: the name.
+// 40.4 to 46.8: the name.
 function sceneLogo(c: Ctx, t: number, f: Fonts) {
   horizon(c, t + 4, 1 - seg(t, 0.6, 2.2));
   const reveal = inOut(seg(t, 0.3, 1.5));
@@ -538,7 +626,7 @@ function sceneLogo(c: Ctx, t: number, f: Fonts) {
 }
 
 /** Scene starts. Each cut gets a short white flash. */
-const CUTS = [3.2, 7.6, 9.4, 10.6, 12.1, 13.6, 17, 20.6, 23.6, 25.6, 27.6, 32.8];
+const CUTS = [3.2, 7.6, 9.4, 10.6, 12.1, 13.6, 17, 20.6, 23.6, 25.6, 27.6, 36.4];
 
 export function drawTrailer(c: Ctx, time: number, A: Assets) {
   const t = Math.min(Math.max(time, 0), DURATION);
@@ -555,9 +643,9 @@ export function drawTrailer(c: Ctx, time: number, A: Assets) {
   else if (t < 20.6) sceneStack(c, t - 17, f);
   else if (t < 23.6) sceneHistory(c, t - 20.6, A);
   else if (t < 27.6) sceneChart(c, t - 23.6, f);
-  else if (t < 32.8) sceneHedge(c, t - 27.6, f);
-  else if (t < 36.8) sceneClaim(c, t - 32.8, f);
-  else sceneLogo(c, t - 36.8, f);
+  else if (t < 36.4) sceneHedge(c, t - 27.6, f);
+  else if (t < 40.4) sceneClaim(c, t - 36.4, f);
+  else sceneLogo(c, t - 40.4, f);
   for (const cut of CUTS) {
     const d = t - cut;
     if (d >= 0 && d < 0.1) {

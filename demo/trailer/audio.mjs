@@ -1,12 +1,12 @@
 // Synthesized soundtrack for the trailer: drone, pulse, hits on the cuts, key clicks, a riser and a closing chord.
 import { writeFileSync } from "node:fs";
-const SR = 44100, DUR = 43.2, N = Math.round(SR * DUR);
+const SR = 44100, DUR = 46.8, N = Math.round(SR * DUR);
 const L = new Float32Array(N), R = new Float32Array(N);
 let seed = 1; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
 const add = (at, len, fn, pan = 0) => { const s = Math.floor(at * SR); for (let i = 0; i < len * SR && s + i < N; i++) { const v = fn(i / SR); L[s + i] += v * (1 - pan) ; R[s + i] += v * (1 + pan); } };
 const TAU = Math.PI * 2;
 // drone
-add(0, 36.8, (t) => { const env = Math.min(1, t / 3) * Math.min(1, (36.8 - t) / 0.4); return env * 0.11 * (Math.sin(TAU * 55 * t) + 0.5 * Math.sin(TAU * 82.4 * t + Math.sin(t * 0.7)) + 0.25 * Math.sin(TAU * 110.3 * t)) * (0.8 + 0.2 * Math.sin(t * 1.3)); });
+add(0, 40.4, (t) => { const env = Math.min(1, t / 3) * Math.min(1, (40.4 - t) / 0.4); return env * 0.11 * (Math.sin(TAU * 55 * t) + 0.5 * Math.sin(TAU * 82.4 * t + Math.sin(t * 0.7)) + 0.25 * Math.sin(TAU * 110.3 * t)) * (0.8 + 0.2 * Math.sin(t * 1.3)); });
 // pulse: sixteenth ticks from 3.2 to 27.6, getting louder
 for (let t = 3.2; t < 27.6; t += 0.15) add(t, 0.03, (x) => rnd() * Math.exp(-x * 220) * (0.05 + 0.1 * (t - 3.2) / 24.4), Math.sin(t * 5) * 0.4);
 // sub kick every 0.6s from 7.6
@@ -14,10 +14,10 @@ for (let t = 7.6; t < 27.6; t += 0.6) add(t, 0.3, (x) => 0.32 * Math.sin(TAU * (
 // hits on cuts
 const hit = (at, g = 1) => add(at, 1.2, (x) => g * (0.5 * Math.sin(TAU * (38 + 90 * Math.exp(-x * 18)) * x) * Math.exp(-x * 4) + 0.22 * rnd() * Math.exp(-x * 14)));
 for (const c of [3.2, 7.6, 9.4, 10.6, 12.1, 13.6, 17, 20.6, 23.6, 25.6, 27.6]) hit(c, 0.8);
-hit(24.7, 1.5); hit(30, 0.9); hit(32.8, 0.8); hit(36.8, 1.2);
+hit(24.7, 1.5); hit(33.6, 0.9); hit(36.4, 0.8); hit(40.4, 1.2);
 // hedge scene: soft typing, then a slow pulse under the proposal
 for (let t = 27.8; t < 29.4; t += 0.075) add(t, 0.05, (x) => 0.16 * (rnd() * Math.exp(-x * 200) + Math.sin(TAU * 1500 * x) * Math.exp(-x * 120) * 0.4), Math.sin(t * 9) * 0.3);
-for (let t = 30; t < 36.8; t += 0.6) add(t, 0.3, (x) => 0.2 * Math.sin(TAU * (48 + 60 * Math.exp(-x * 30)) * x) * Math.exp(-x * 11));
+for (let t = 33.6; t < 40.4; t += 0.6) add(t, 0.3, (x) => 0.2 * Math.sin(TAU * (48 + 60 * Math.exp(-x * 30)) * x) * Math.exp(-x * 11));
 // key clicks
 const click = (at) => add(at, 0.12, (x) => 0.45 * (rnd() * Math.exp(-x * 160) + Math.sin(TAU * 1900 * x) * Math.exp(-x * 90) * 0.5 + Math.sin(TAU * 140 * x) * Math.exp(-x * 40)));
 for (const k of [1.3, 10.82, 11.08, 11.34, 12.32, 12.58]) click(k);
@@ -26,7 +26,7 @@ for (const k of [1.3, 10.82, 11.08, 11.34, 12.32, 12.58]) click(k);
 // riser into the liquidation
 add(20.6, 4.1, (x) => { const p = x / 4.1; return 0.1 * p * p * (rnd() * 0.5 + Math.sin(TAU * (200 + 900 * p * p) * x)); });
 // closing chord
-for (const [f, g] of [[110, 1], [164.8, 0.7], [220, 0.6], [329.6, 0.35], [440, 0.2]]) add(36.8, 6.4, (x) => 0.09 * g * Math.sin(TAU * f * x + 0.3 * Math.sin(TAU * 0.2 * x)) * Math.min(1, x / 0.05) * Math.exp(-x * 0.45) * Math.min(1, (6.4 - x) / 0.8));
+for (const [f, g] of [[110, 1], [164.8, 0.7], [220, 0.6], [329.6, 0.35], [440, 0.2]]) add(40.4, 6.4, (x) => 0.09 * g * Math.sin(TAU * f * x + 0.3 * Math.sin(TAU * 0.2 * x)) * Math.min(1, x / 0.05) * Math.exp(-x * 0.45) * Math.min(1, (6.4 - x) / 0.8));
 // ---- sound effects on the standout visual moments ----
 // one-pole lowpassed noise; cutoff in Hz may change per call
 const lpNoise = () => { let y = 0; return (fc) => { const a = 1 - Math.exp(-TAU * fc / SR); y += a * (rnd() - y); return y; }; };
@@ -67,15 +67,22 @@ hit(20.65, 0.7); { const n = lpNoise(); add(20.65, 0.5, (x) => 0.12 * n(2500) * 
 // 25.6-27.6 profit counter: rising count-up ticks then a bell
 for (let t = 25.6, k = 0; t < 26.9; k++) { const p = (t - 25.6) / 1.3; ping(t, 1200 + 1400 * p, 0.03, Math.sin(k * 1.7) * 0.3); t += 0.075 - 0.045 * p; }
 for (const [f, g] of [[1568, 1], [3136, 0.4], [4704, 0.15]]) add(26.9, 1.6, (x) => 0.1 * g * Math.sin(TAU * f * x) * Math.min(1, x / 0.002) * Math.exp(-x * 3.2));
-// 27.6-32.8 hedge agent: sonar blips, row thunks, two-note confirm chord
-for (const t of [29.45, 29.65, 29.85]) add(t, 0.35, (x) => 0.06 * Math.sin(TAU * 1320 * x) * Math.min(1, x / 0.004) * Math.exp(-x * 14) * (1 + 0.5 * Math.sin(TAU * 25 * x)), (t - 29.65) * 3);
-for (const t of [30.0, 30.3]) { const n = lpNoise(); add(t, 0.2, (x) => 0.2 * Math.sin(TAU * (90 + 120 * Math.exp(-x * 40)) * x) * Math.exp(-x * 22) + 0.08 * n(1200) * 3 * Math.exp(-x * 50)); }
-for (const [f, d] of [[523.3, 0], [784, 0.12]]) for (const m of [1, 1.5]) add(31.1 + d, 1.4, (x) => 0.05 / m * Math.sin(TAU * f * m * x + 0.6 * Math.exp(-x * 6) * Math.sin(TAU * f * 2 * x)) * Math.min(1, x / 0.005) * Math.exp(-x * 2.2));
-// 32.8-36.8 claim: low swell
-add(32.8, 4.0, (x) => 0.05 * Math.sin(TAU * 41.2 * x) * Math.pow(Math.sin(Math.PI * x / 4.0), 2));
-// 36.8-43.2 logo: sweep under the reveal, bright ping on "5x"
-whoosh(37.1, 1.2, 250, 5000, 0.09, -0.4, 0.4, 0.3);
-ping(38.5, 2093, 0.1, 0); ping(38.53, 3136, 0.05, 0.2);
+// 27.6-36.4 hedge agent: trace ticks, a falling sweep on the collapse, row thunks, two-note confirm chord
+// soft tick as each trace row enters (29.6 + 0.4 i), brighter tick as each step completes (+0.25)
+const tick = (at, f, g, pan) => add(at, 0.08, (x) => g * (Math.sin(TAU * f * x) + 0.3 * Math.sin(TAU * f * 2.7 * x)) * Math.min(1, x / 0.0015) * Math.exp(-x * 70), pan);
+["thought", "step", "thought", "step", "step", "step", "step"].forEach((kind, i) => {
+  const t = 29.6 + i * 0.4;
+  tick(t, 1900, 0.035, -0.15 + i * 0.05);
+  if (kind === "step") tick(t + 0.25, 2800, 0.05, 0.1 + i * 0.03);
+});
+{ const o = osc(), n = lpNoise(); add(32.8, 0.4, (x) => { const p = x / 0.4; return (0.04 * o(1800 * Math.pow(300 / 1800, p)) + 0.03 * n(3000 - 2400 * p) * 2) * Math.min(1, x / 0.01) * (1 - p); }); }
+for (const t of [33.6, 33.9]) { const n = lpNoise(); add(t, 0.2, (x) => 0.2 * Math.sin(TAU * (90 + 120 * Math.exp(-x * 40)) * x) * Math.exp(-x * 22) + 0.08 * n(1200) * 3 * Math.exp(-x * 50)); }
+for (const [f, d] of [[523.3, 0], [784, 0.12]]) for (const m of [1, 1.5]) add(34.7 + d, 1.4, (x) => 0.05 / m * Math.sin(TAU * f * m * x + 0.6 * Math.exp(-x * 6) * Math.sin(TAU * f * 2 * x)) * Math.min(1, x / 0.005) * Math.exp(-x * 2.2));
+// 36.4-40.4 claim: low swell
+add(36.4, 4.0, (x) => 0.05 * Math.sin(TAU * 41.2 * x) * Math.pow(Math.sin(Math.PI * x / 4.0), 2));
+// 40.4-46.8 logo: sweep under the reveal, bright ping on "5x"
+whoosh(40.7, 1.2, 250, 5000, 0.09, -0.4, 0.4, 0.3);
+ping(42.1, 2093, 0.1, 0); ping(42.13, 3136, 0.05, 0.2);
 // 23.6-25.6 liquidation: dip to near silence, then boom with falling sweep and alarm tail
 { const a = Math.floor(24.56 * SR), b = Math.floor(24.7 * SR); for (let i = a; i < b; i++) { const p = (i - a) / (b - a), g = Math.max(0.04, 1 - Math.min(1, p / 0.35)); L[i] *= g; R[i] *= g; } }
 { const o = osc(); add(24.7, 1.6, (x) => 0.55 * o(28 + 140 * Math.exp(-x * 5)) * Math.exp(-x * 2.6) * Math.min(1, x / 0.002)); }

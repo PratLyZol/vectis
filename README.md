@@ -142,10 +142,10 @@ demo/        Demo script, the trailer video and the scripts that render it
 
 ## Trailer
 
-[`demo/vectis-trailer.mp4`](demo/vectis-trailer.mp4) is a 43.2 s, 1920x1080, 30 fps trailer with a
-synthesized soundtrack. It is drawn on a canvas by `web/src/lib/trailer.ts`, which the `/trailer`
-page plays silently: Space or click pauses, R restarts, F toggles full screen. The hedge agent
-scene shows a real proposal returned by the agent on production on 2026-11-20.
+[`demo/vectis-trailer.mp4`](demo/vectis-trailer.mp4) is a 46.8 s, 1920x1080, 30 fps trailer with a
+synthesized soundtrack, whose hedge agent scene shows the agent trace and the proposal from a real
+run on production on 2026-11-20. It is drawn on a canvas by `web/src/lib/trailer.ts`, which the
+`/trailer` page plays silently: Space or click pauses, R restarts, F toggles full screen.
 
 To re-render it, run the web app on port 3111 (the capture script expects that port), then from
 the repository root:
