@@ -4,7 +4,7 @@
 
 export const W = 1920;
 export const H = 1080;
-export const DURATION = 38;
+export const DURATION = 43.2;
 
 export type Fonts = { sans: string; mono: string };
 type Pt = [number, number];
@@ -409,6 +409,59 @@ function sceneChart(c: Ctx, t: number, f: Fonts) {
   glitch(c, u, u < 0.12 ? 1 : 0);
 }
 
+// 27.6 to 32.8: the hedge agent. A typed exposure becomes proposed positions.
+// The two legs are an illustration of the proposal layout, not a saved run.
+const HEDGE_PROMPT = "I RUN A LAUNDROMAT. GAS COSTS ME $900 A MONTH. HEDGE IT WITH $200.";
+const HEDGE_LEGS: [string, string, string, string][] = [
+  ["YES", "Natural gas above $4 in December", "$120  3x", "DIRECT"],
+  ["YES", "Colder winter than normal", "$80  2x", "PROXY"],
+];
+
+function sceneHedge(c: Ctx, t: number, f: Fonts) {
+  const typed = Math.floor(seg(t, 0.2, 1.8) * HEDGE_PROMPT.length);
+  const lift = inOut(seg(t, 2.0, 2.4)) * 60;
+  const text = `> ${HEDGE_PROMPT.slice(0, typed)}`;
+  label(c, text, 150, 300 - lift, `500 30px ${f.mono}`, "#fff", "left", 3);
+  if (t < 2.2 && Math.floor(t * 5) % 2 === 0) {
+    c.font = `500 30px ${f.mono}`;
+    (c as Ctx & { letterSpacing: string }).letterSpacing = "3px";
+    c.fillStyle = "#fff";
+    c.fillRect(150 + c.measureText(text).width + 6, 300 - lift - 17, 16, 34);
+  }
+  if (t >= 1.8 && t < 2.4) {
+    // The search: a strip of dots lit from the left.
+    const head = seg(t, 1.8, 2.4) * 60;
+    for (let i = 0; i < 60; i++) dot(c, 156 + i * 27, 380, 8, i <= head ? 0.95 : 0.25);
+    label(c, "FINDING MARKETS", 150, 440, `400 22px ${f.mono}`, "#808080", "left", 6);
+  }
+  HEDGE_LEGS.forEach(([side, title, size, kind], i) => {
+    const p = out(seg(t, 2.4 + i * 0.3, 2.9 + i * 0.3));
+    if (p <= 0) return;
+    const y = 420 + i * 170;
+    const x = 150 + (1 - p) * 70;
+    c.save();
+    c.globalAlpha = p;
+    c.fillStyle = "#fff";
+    c.fillRect(x, y - 36, 130, 72);
+    label(c, side, x + 65, y + 2, `500 34px ${f.mono}`, "#000", "center", 2);
+    label(c, title, x + 170, y - 4, `500 56px ${f.sans}`, "#fff", "left", -1);
+    label(c, size, W - 150, y - 16, `500 46px ${f.mono}`, "#fff", "right", 0);
+    label(c, kind, W - 150, y + 34, `400 20px ${f.mono}`, "#808080", "right", 5);
+    c.strokeStyle = "#333";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(150, y + 84);
+    c.lineTo(W - 150, y + 84);
+    c.stroke();
+    c.restore();
+  });
+  const close = out(seg(t, 3.5, 3.9));
+  label(c, "ONE APPROVAL OPENS BOTH", 150, 850 + (1 - close) * 30, `500 84px ${f.sans}`, white(close), "left", -2);
+  label(c, "YOU REVIEW AND CONFIRM EVERY POSITION", 150, 940, `400 22px ${f.mono}`, `rgba(128,128,128,${out(seg(t, 3.9, 4.3))})`, "left", 6);
+  hud(c, t + 27.6, f, "HEDGE AGENT / PLAIN ENGLISH IN, POSITIONS OUT");
+  glitch(c, t, t < 0.12 || (t > 2.4 && t < 2.55) ? 1 : 0);
+}
+
 function horizon(c: Ctx, t: number, alpha: number) {
   const R = 3000;
   const cy = 800 + R;
@@ -425,7 +478,7 @@ function horizon(c: Ctx, t: number, alpha: number) {
   c.fill();
 }
 
-// 27.6 to 31.6: the claim.
+// 32.8 to 36.8: the claim.
 function sceneClaim(c: Ctx, t: number, f: Fonts) {
   horizon(c, t, out(seg(t, 0, 0.8)));
   const s = 1.18 - inOut(seg(t, 0, 4)) * 0.26;
@@ -459,7 +512,7 @@ function mark(c: Ctx, x: number, y: number, s: number) {
   c.stroke();
 }
 
-// 31.6 to 38.0: the name.
+// 36.8 to 43.2: the name.
 function sceneLogo(c: Ctx, t: number, f: Fonts) {
   horizon(c, t + 4, 1 - seg(t, 0.6, 2.2));
   const reveal = inOut(seg(t, 0.3, 1.5));
@@ -485,7 +538,7 @@ function sceneLogo(c: Ctx, t: number, f: Fonts) {
 }
 
 /** Scene starts. Each cut gets a short white flash. */
-const CUTS = [3.2, 7.6, 9.4, 10.6, 12.1, 13.6, 17, 20.6, 23.6, 25.6, 27.6];
+const CUTS = [3.2, 7.6, 9.4, 10.6, 12.1, 13.6, 17, 20.6, 23.6, 25.6, 27.6, 32.8];
 
 export function drawTrailer(c: Ctx, time: number, A: Assets) {
   const t = Math.min(Math.max(time, 0), DURATION);
@@ -502,8 +555,9 @@ export function drawTrailer(c: Ctx, time: number, A: Assets) {
   else if (t < 20.6) sceneStack(c, t - 17, f);
   else if (t < 23.6) sceneHistory(c, t - 20.6, A);
   else if (t < 27.6) sceneChart(c, t - 23.6, f);
-  else if (t < 31.6) sceneClaim(c, t - 27.6, f);
-  else sceneLogo(c, t - 31.6, f);
+  else if (t < 32.8) sceneHedge(c, t - 27.6, f);
+  else if (t < 36.8) sceneClaim(c, t - 32.8, f);
+  else sceneLogo(c, t - 36.8, f);
   for (const cut of CUTS) {
     const d = t - cut;
     if (d >= 0 && d < 0.1) {

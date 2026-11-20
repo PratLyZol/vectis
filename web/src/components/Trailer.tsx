@@ -71,7 +71,7 @@ export function Trailer() {
           };
         } else if (reduce) {
           // No autoplay: hold on the title until the viewer asks for it.
-          s.t = 35;
+          s.t = 40.2;
           s.playing = false;
           setPaused(true);
           drawTrailer(ctx, s.t, a);
@@ -84,7 +84,7 @@ export function Trailer() {
       });
 
     const toggle = () => {
-      if (s.t >= DURATION || (reduce && !s.playing && s.t === 35)) s.t = 0;
+      if (s.t >= DURATION || (reduce && !s.playing && s.t === 40.2)) s.t = 0;
       s.playing = !s.playing;
       s.last = performance.now();
       setPaused(!s.playing);
@@ -118,7 +118,7 @@ export function Trailer() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black" data-ready={ready}>
-      <canvas ref={canvas} className="max-h-full max-w-full cursor-pointer" style={{ aspectRatio: `${W} / ${H}` }} role="img" aria-label="Vectis trailer: leverage for prediction markets, up to 5x, with margin and lending in USDC on Arc testnet." />
+      <canvas ref={canvas} className="max-h-full max-w-full cursor-pointer" style={{ aspectRatio: `${W} / ${H}` }} role="img" aria-label="Vectis trailer: leverage for prediction markets, up to 5x, with margin and lending in USDC on Arc testnet, and a hedge agent that turns a described risk into proposed positions." />
       <p className="pointer-events-none absolute bottom-4 left-0 right-0 text-center font-mono text-[12px] text-muted transition-opacity duration-200" style={{ opacity: paused ? 1 : 0 }}>
         Click or Space to play. R restarts. F is full screen.
       </p>
