@@ -1,0 +1,14 @@
+# Railway worker for the keeper. Deployed with `railway up ./keeper --path-as-root` from the repo root.
+# No public port and no healthcheck: the keeper only makes outbound calls.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+# Time between SIGTERM and SIGKILL, so an in-flight transaction can settle (the keeper waits up to 8 s).
+drainingSeconds = 15
+# Never run the old and new keeper together: they share one wallet and would fight over nonces.
+overlapSeconds = 0

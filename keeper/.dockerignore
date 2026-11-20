@@ -1,0 +1,9 @@
+node_modules
+.env
+.env.*
+**/.env
+**/.env.*
+.keeper-state.json
+.keeper-state.json.tmp
+test
+.git

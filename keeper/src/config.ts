@@ -61,7 +61,7 @@ function strEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string 
 
 export function parsePrivateKey(raw: string | undefined): Hex {
   const v = raw?.trim() ?? "";
-  if (!v) throw new ConfigError("DEPLOYER_PRIVATE_KEY is not set (expected in ../.env)");
+  if (!v) throw new ConfigError("DEPLOYER_PRIVATE_KEY is not set (set it in the environment, or in the repo-root .env locally)");
   const hex = v.startsWith("0x") || v.startsWith("0X") ? v.slice(2) : v;
   // Deliberately no echo of the value in the error.
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new ConfigError("DEPLOYER_PRIVATE_KEY is not a 32-byte hex string");
@@ -96,12 +96,18 @@ export function parseAddresses(json: unknown, file: string): Addresses {
   return out;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  // The repo-root .env holds the wallet key; values already in the environment win.
-  dotenv.config({ path: resolve(PACKAGE_ROOT, "..", ".env"), quiet: true });
+/** Absolute paths as given; relative ones against the keeper package root. */
+function resolvePath(p: string): string {
+  return isAbsolute(p) ? p : resolve(PACKAGE_ROOT, p);
+}
 
-  const addressesRaw = env.ADDRESSES_FILE?.trim() || "./addresses.json";
-  const addressesFile = isAbsolute(addressesRaw) ? addressesRaw : resolve(PACKAGE_ROOT, addressesRaw);
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  // Locally the repo-root .env holds the wallet key; values already in the environment win. In a
+  // container there is no .env and everything comes from the process environment. An explicit env
+  // object (tests) never reads the file.
+  if (env === process.env) dotenv.config({ path: resolve(PACKAGE_ROOT, "..", ".env"), quiet: true });
+
+  const addressesFile = resolvePath(env.ADDRESSES_FILE?.trim() || "./addresses.json");
   if (!existsSync(addressesFile)) throw new ConfigError(`addresses file not found: ${addressesFile}`);
   let parsed: unknown;
   try {
@@ -140,7 +146,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((s) => s.trim())
       .filter(Boolean),
     addressesFile,
-    stateFile: resolve(PACKAGE_ROOT, ".keeper-state.json"),
+    // KEEPER_STATE_FILE lets a container keep state on a mounted volume (e.g. /data/keeper-state.json).
+    stateFile: resolvePath(env.KEEPER_STATE_FILE?.trim() || ".keeper-state.json"),
     addresses,
   };
 }
