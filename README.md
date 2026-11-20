@@ -89,8 +89,30 @@ The holder can be anyone, from a laundromat paying for natural gas to a fund sho
 `/api/hedge` runs a tool loop on Venice AI (OpenAI-compatible, through the `openai` client). The
 tools are read-only: list categories, search markets, read an event, read the book and preview a
 position. The model ends by asking one clarifying question or by calling `propose_hedge`. The
-proposal is data only: what it hedges against, then each leg (market, side, margin, leverage,
+proposal itself is data only: what it hedges against, then each leg (market, side, margin, leverage,
 direct or proxy) and named scenarios. The UI shows each leg with live market data, not model prose.
+Model text appears only in the agent trace (below): the system prompt asks for one short
+plain-English sentence before each data tool call, and Venice reasoning is not stripped
+(`strip_thinking_response: false`).
+
+With `Accept: text/event-stream`, `/api/hedge` streams the run as Server-Sent Events
+(`web/src/lib/hedge/sse.ts`, `web/src/lib/hedge/respond.server.ts`):
+
+| Event | Data |
+| --- | --- |
+| `step` | Sent when each model call or data tool starts and again when it is done (same `id`). `label` and `detail` come from fixed server templates; the only outside text in them is the search keyword and titles or identifiers from Gemini data |
+| `thought` | A short, cleaned piece of the model's reasoning for one model step: plain text, capped at 600 characters, never placed in a label. Reasoning fields and `<think>` blocks are never sent back to the model |
+| `result` | Exactly one, at the end: the same question, proposal or error body the JSON path returns, also when the run throws |
+
+A `: ping` comment is sent every 15 s so proxies keep the connection open. Without the header the
+endpoint returns the same JSON as before, and requests rejected before the agent starts (no key, bad
+body) get plain JSON either way. The run has a 75 s budget, and each model call is capped at 35 s so
+a call and its retry cannot outlive the function's 90 s `maxDuration`
+(`web/src/lib/hedge/agent.server.ts`). The event types are in `web/src/lib/types.ts`.
+
+`/hedge` reads the stream and shows a live agent trace (`web/src/components/AgentTrace.tsx`): the
+current step, the elapsed seconds, and a timeline of tool steps and thoughts. When the agent
+finishes, the trace collapses to a summary such as "Worked for 7s · 4 steps" that can be reopened.
 
 The server checks every leg against fresh Gemini data before it reaches the browser
 (`web/src/lib/hedge/validate.ts`): the symbol must exist and be open, prices are recomputed, and
@@ -115,7 +137,27 @@ contracts/   Foundry project: PriceOracle, LendingVault, MarginManager, tests, D
 keeper/      Node + TypeScript keeper (runs locally, not on Vercel)
 web/         Next.js App Router app (deployed to Vercel)
 scripts/     export-abis.mjs (ABIs to web and keeper), stream.mjs (QuickNode Streams REST)
+demo/        Demo script, the trailer video and the scripts that render it
 ```
+
+## Trailer
+
+[`demo/vectis-trailer.mp4`](demo/vectis-trailer.mp4) is a 43.2 s, 1920x1080, 30 fps trailer with a
+synthesized soundtrack. It is drawn on a canvas by `web/src/lib/trailer.ts`, which the `/trailer`
+page plays silently: Space or click pauses, R restarts, F toggles full screen. The hedge agent
+scene shows a real proposal returned by the agent on production on 2026-11-20.
+
+To re-render it, run the web app on port 3111 (the capture script expects that port), then from
+the repository root:
+
+```bash
+(cd web && pnpm exec next dev -p 3111)              # in another terminal
+node demo/trailer/capture.mjs video silent.mp4 30   # headless Chrome, frame by frame; needs ffmpeg
+node demo/trailer/audio.mjs soundtrack.wav
+ffmpeg -i silent.mp4 -i soundtrack.wav -c:v copy -c:a aac -shortest -movflags +faststart demo/vectis-trailer.mp4
+```
+
+`node demo/trailer/capture.mjs frames <dir> 28.6,32.5` saves single frames at the given seconds.
 
 ## Deployed addresses
 
@@ -231,6 +273,9 @@ No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
   price; the shortfall is written off against vault depositors.
 - **Trusted oracle.** A single poster; no aggregation or dispute path.
 - **Keeper gas.** Posting prices costs testnet USDC continuously while it runs.
+- **Agent trace.** Thoughts depend on what the model returns and may be absent for a step. Closing
+  the page stops the stream, but the run on the server continues to the end. The stream encoding,
+  decoding and agent events have unit tests; the trace UI has no browser tests.
 
 ## Assumptions made
 
@@ -243,7 +288,7 @@ No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
   All contract math uses the ERC-20 (6-decimal) view, never the 18-decimal native balance.
 - OpenZeppelin is pinned to v5.4.0 (v5.7.0 needs a newer compiler and Osaka-only opcodes).
 - Vault shares (vUSDC) have 12 decimals (6-decimal offset against the first-depositor attack).
-- No git repository was initialised (not requested). `.gitignore` still protects `.env`.
+- `.gitignore` keeps `.env` out of the repository.
 - Stock Foundry is used for deployment, as Arc's docs allow; Arc Foundry was not needed.
 
 ## Pages
@@ -257,12 +302,13 @@ No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
 | `/portfolio` | Your positions, with distance to liquidation |
 | `/vault` | Deposit and withdraw USDC as a lender |
 | `/lend` | Lender entry point: how lenders earn, the risks, live vault numbers, first deposit |
-| `/hedge` | Hedge agent: describe an exposure, edit the proposed legs, then confirm to open them |
+| `/hedge` | Hedge agent: describe an exposure, watch the live agent trace, edit the proposed legs, then confirm to open them |
 | `/replay` | Replay a hypothetical leveraged position on a market's real one-minute Gemini price history, to a gain or a liquidation. Uses the contract rules for leverage cap, fee and liquidation price. Five histories are saved in `web/src/lib/fixtures-replays.json` so they replay after Gemini drops them; any live market replays from its page. Entries and exits use bar closes with no spread, and the final-hour step-down is not modelled |
+| `/trailer` | The trailer drawn live on a canvas, silent. Space or click pauses, R restarts, F toggles full screen |
 | `/api/markets`, `/api/markets/[ticker]`, `/api/book/[symbol]` | Cached server-side proxies for Gemini public data |
 | `/api/combos`, `/api/combos/[symbol]` | Combo list, registry and leg-derived prices |
 | `/api/qn-stream`, `/api/activity` | QuickNode Streams webhook and the event feed |
-| `/api/hedge` | Hedge agent (POST): conversation in, a question or a validated proposal out |
+| `/api/hedge` | Hedge agent (POST): conversation in, a question or a validated proposal out. Streams `step`, `thought` and `result` events with `Accept: text/event-stream`, JSON otherwise |
 
 With zero addresses in `web/src/config/addresses.ts` every page runs on demo data.
 
