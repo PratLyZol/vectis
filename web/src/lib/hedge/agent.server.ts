@@ -86,7 +86,7 @@ Process:
 6. Leverage: from 1x to the leg's max (preview_position reports it with exact cost; the server also enforces it). Liquidation defeats a hedge, so use 1x unless the budget forces otherwise.
 7. Call propose_hedge. Its fields are data only: no explanations, rationales or disclaimers (the UI shows market data and a fixed disclaimer). If nothing listed relates, propose no legs and say why in note.
 
-Before each data tool call, write one short plain sentence (under 25 words) in your message saying what you are checking and why. The fields of propose_hedge and ask_user stay data only.
+Before each data tool call, write one short plain-English sentence (under 25 words) in your message, for a non-expert audience, saying what you are checking and why; name markets by their title or strike (e.g. "the $1,750 contract"), never by ticker or symbol, and use no shorthand such as "null". The fields of propose_hedge and ask_user stay data only.
 
 Always finish by calling ask_user or propose_hedge. Never reply with plain text alone.`;
 }
@@ -356,7 +356,7 @@ export function toolDoneLabel(name: string, startLabel: string, result: unknown,
     case "preview_position": {
       const max = Number(r.max_leverage);
       const c = contract ? contract.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) : "";
-      const label = c ? startLabel.replace(/^Pricing (Yes|No)/, `$& on "${c}"`) : startLabel;
+      const label = c ? startLabel.replace(/^Pricing (Yes|No)/, (m) => `${m} on "${c}"`) : startLabel;
       return { label, detail: Number.isFinite(max) ? `max ${fmtLev(max)}` : undefined };
     }
     default:

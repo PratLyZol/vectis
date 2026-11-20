@@ -247,6 +247,12 @@ describe("step labels", () => {
     expect(toolDoneLabel("list_categories", "L", { categories: [{ category: leak, examples: [leak] }, {}] })).toEqual({ label: "L", detail: "2 categories" });
     expect(toolDoneLabel("get_event", "R", { error: leak })).toEqual({ label: "R", detail: "no result" });
     expect(toolDoneLabel("preview_position", "P", { max_leverage: 3, note: leak })).toEqual({ label: "P", detail: "max 3x" });
+    // A "$1" in a Gemini contract label is text, not a regex backreference.
+    expect(toolDoneLabel("preview_position", "Pricing No at 1x", { max_leverage: 4 }, "$1,750 or above")).toEqual({
+      label: 'Pricing No on "$1,750 or above" at 1x',
+      detail: "max 4x",
+    });
+    expect(toolDoneLabel("preview_position", "Pricing Yes at 2x", { max_leverage: 3 }, "$&$`$' or above").label).toBe('Pricing Yes on "$&$`$\' or above" at 2x');
     expect(JSON.stringify(toolDoneLabel("get_book", "B", { symbol: "B-91", yes_bids: [], yes_asks: [], note: leak }))).not.toContain(leak);
   });
 });
