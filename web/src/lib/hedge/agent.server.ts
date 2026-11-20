@@ -19,6 +19,7 @@ import type {
   HedgeMessage,
   HedgeProposal,
   HedgeResponse,
+  HedgeStepEvent,
   MarketEvent,
   MarketsResponse,
 } from "../types";
@@ -27,6 +28,7 @@ import { buildProposal, clampLeverage, contractAsk } from "./validate";
 export const MAX_STEPS = 10;
 /** Wall-clock budget for the whole loop; the route's maxDuration leaves headroom above it. */
 export const AGENT_DEADLINE_MS = 75_000;
+const MAX_CALL_MS = 35_000; // per model attempt; two must fit in AGENT_DEADLINE_MS
 const MIN_CALL_MS = 5_000;
 const OUT_OF_TIME: HedgeResponse = {
   type: "error",
@@ -57,6 +59,8 @@ export type AgentDeps = {
   data?: MarketData;
   now?: () => Date;
   deadlineMs?: number; // wall-clock budget for the whole loop
+  /** Progress of the loop, for streaming. Called synchronously; a listener that throws is ignored. */
+  onEvent?: (e: HedgeStepEvent) => void;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -284,6 +288,72 @@ async function runTool(name: string, args: Record<string, unknown>, ctx: ToolCon
 }
 
 // ---------------------------------------------------------------------------------------------
+// Progress labels (streamed to the browser). Fixed templates only: the one piece of model text
+// allowed is the search keyword or category, trimmed to 40 characters. Everything else is either
+// a number we computed or an identifier or title that came back from Gemini data, so a label can
+// never carry the model's free text or a tool result verbatim.
+
+const KEYWORD_CHARS = 40;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const keyword = (v: unknown) => str(v, KEYWORD_CHARS).replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+const obj = (v: unknown): Record<string, unknown> | null => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null);
+const fmtLev = (x: number) => `${Number.isInteger(x) ? x : x.toFixed(1)}x`;
+
+/** The label shown while a data tool runs. Uses only the arguments' keyword, side and leverage. */
+export function toolStartLabel(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case "list_categories":
+      return "Listing market categories";
+    case "search_markets": {
+      const kw = keyword(args.search) || keyword(args.category);
+      return kw ? `Searching markets for "${kw}"` : "Searching markets";
+    }
+    case "get_event":
+      return "Reading an event";
+    case "get_book":
+      return "Checking an order book";
+    case "preview_position": {
+      const side = args.side === "no" ? "No" : "Yes";
+      const lev = Number(args.leverage);
+      return Number.isFinite(lev) && lev >= 1 && lev <= 100 ? `Pricing ${side} at ${fmtLev(Math.round(lev * 10) / 10)}` : `Pricing ${side}`;
+    }
+    default:
+      return "Running a tool";
+  }
+}
+
+/**
+ * The label and detail once a data tool has returned. Reads the structured result we built in
+ * runTool (counts, and tickers, titles and symbols that Gemini returned), never its text.
+ */
+export function toolDoneLabel(name: string, startLabel: string, result: unknown): { label: string; detail?: string } {
+  const r = obj(result);
+  if (!r || "error" in r) return { label: startLabel, detail: "no result" };
+  switch (name) {
+    case "list_categories":
+      return { label: startLabel, detail: plural(Array.isArray(r.categories) ? r.categories.length : 0, "category", "categories") };
+    case "search_markets":
+      return { label: startLabel, detail: plural(Array.isArray(r.events) ? r.events.length : 0, "event") };
+    case "get_event": {
+      const title = typeof r.title === "string" && r.title.trim() ? r.title.trim().slice(0, 80) : typeof r.ticker === "string" ? r.ticker : "";
+      const n = Array.isArray(r.contracts) ? r.contracts.length : 0;
+      return { label: title ? `Reading ${title}` : startLabel, detail: plural(n, "contract") };
+    }
+    case "get_book": {
+      const symbol = typeof r.symbol === "string" ? r.symbol : "";
+      const n = (Array.isArray(r.yes_bids) ? r.yes_bids.length : 0) + (Array.isArray(r.yes_asks) ? r.yes_asks.length : 0);
+      return { label: symbol ? `Checking the order book for ${symbol}` : startLabel, detail: plural(n, "level") };
+    }
+    case "preview_position": {
+      const max = Number(r.max_leverage);
+      return { label: startLabel, detail: Number.isFinite(max) ? `max ${fmtLev(max)}` : undefined };
+    }
+    default:
+      return { label: startLabel };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Loop
 
 function parseArgs(raw: string): Record<string, unknown> | null {
@@ -340,6 +410,14 @@ export async function runHedgeAgent(
   const deadline = Date.now() + (deps.deadlineMs ?? AGENT_DEADLINE_MS);
   const ctx: ToolContext = { data: deps.data ?? geminiData, now, sources: new Set() };
   const client = deps.client as ChatClient;
+  let stepId = 0;
+  const emit = (e: HedgeStepEvent) => {
+    try {
+      deps.onEvent?.(e);
+    } catch {
+      // A listener (e.g. a closed stream) must never break the loop.
+    }
+  };
 
   const messages: ChatCompletionMessageParam[] = [{ role: "system", content: systemPrompt(now) }];
   input.messages.forEach((m, i) => {
@@ -368,17 +446,22 @@ export async function runHedgeAgent(
       venice_parameters: { include_venice_system_prompt: false, enable_web_search: "off", strip_thinking_response: true },
     } as ChatCompletionCreateParamsNonStreaming;
     let res: ChatCompletion;
+    const modelStep = ++stepId;
+    emit({ id: modelStep, phase: "start", kind: "model", label: "Thinking" });
     try {
-      // Never let one model call outlive the loop's budget; retry only when there is time for it.
-      res = await client.chat.completions.create(params, { timeout: remaining, maxRetries: remaining > 40_000 ? 1 : 0 });
+      // Cap each attempt so a timeout plus its retry still fits the loop's budget (and the route's
+      // maxDuration); retry only when the remaining budget holds a second capped attempt.
+      const attemptMs = Math.min(remaining, MAX_CALL_MS);
+      res = await client.chat.completions.create(params, { timeout: attemptMs, maxRetries: remaining >= 2 * attemptMs ? 1 : 0 });
     } catch (e) {
       if (e instanceof OpenAI.APIConnectionTimeoutError) return OUT_OF_TIME;
       throw e;
     }
     const msg = res.choices[0]?.message;
+    const calls = (msg?.tool_calls ?? []).filter((c) => c.type === "function");
+    emit({ id: modelStep, phase: "done", kind: "model", label: "Thinking", ...(calls.length ? { detail: plural(calls.length, "tool call") } : {}) });
     if (!msg) return { type: "error", error: "The model returned no message." };
 
-    const calls = (msg.tool_calls ?? []).filter((c) => c.type === "function");
     if (calls.length === 0) {
       const textReply = (msg.content ?? "").trim();
       if (nudged || finalStep) {
@@ -399,7 +482,12 @@ export async function runHedgeAgent(
         return { type: "question", question: args.question.trim().slice(0, 600) };
       }
       if (args && terminal.function.name === "propose_hedge") {
-        return { type: "proposal", proposal: await finalize(args, ctx) };
+        const id = ++stepId;
+        const label = "Validating the proposal against live prices";
+        emit({ id, phase: "start", kind: "tool", tool: "propose_hedge", label });
+        const proposal = await finalize(args, ctx);
+        emit({ id, phase: "done", kind: "tool", tool: "propose_hedge", label, detail: plural(proposal.legs.length, "leg") });
+        return { type: "proposal", proposal };
       }
       // Malformed terminal call: report it back and let the model retry.
     }
@@ -411,11 +499,16 @@ export async function runHedgeAgent(
       else if (call === terminal) result = { error: "Missing or invalid fields. Call the tool again with every required field." };
       else if (call.function.name === "propose_hedge" || call.function.name === "ask_user") result = { error: "Ignored." };
       else {
+        const name = call.function.name;
+        const id = ++stepId;
+        const label = toolStartLabel(name, args);
+        emit({ id, phase: "start", kind: "tool", tool: name, label });
         try {
-          result = await runTool(call.function.name, args, ctx);
+          result = await runTool(name, args, ctx);
         } catch (e) {
           result = { error: e instanceof Error ? e.message : "Tool failed." };
         }
+        emit({ id, phase: "done", kind: "tool", tool: name, ...toolDoneLabel(name, label, result) });
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: clip(JSON.stringify(result)) });
     }

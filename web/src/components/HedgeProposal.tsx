@@ -16,6 +16,7 @@ const ORACLE_MAX_AGE = 60n;
 const LEVERAGE_STEPS = [10, 15, 20, 30, 40]; // tenths; the current max is added to these
 const LEVERAGE_UNIT_N = Number(LEVERAGE_UNIT);
 const MAX_MOVE = 30_000n;
+const LEG_STAGGER_MS = 60;
 const REQUEST_EVERY_MS = 10 * 60_000; // keeps the keeper's request alive while the page is open
 
 type RequestState = { status: "sent" } | { status: "rejected"; reason: string } | { status: "failed" };
@@ -123,6 +124,14 @@ export function HedgeProposal({
   const balance = useSpendableUsdc();
   const vault = useVault();
   const batch = useOpenBatch();
+  // The legs of a new proposal enter one at a time (LEG_STAGGER_MS apart). Only rows present at
+  // mount do; a row that remounts later (after a removal) just appears.
+  const [introMs] = useState(() => LEG_STAGGER_MS * proposal.legs.length + 400);
+  const [intro, setIntro] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setIntro(false), introMs);
+    return () => clearTimeout(t);
+  }, [introMs]);
 
   const tickers = useMemo(() => [...new Set(proposal.legs.map((l) => l.eventTicker))], [proposal.legs]);
   const eventQueries = useEvents(tickers);
@@ -229,6 +238,7 @@ export function HedgeProposal({
             <LegRow
               key={`${x.leg.symbol}-${i}`}
               live={x}
+              enter={intro ? i : undefined}
               editable={editable}
               status={batch.legs[ran.indexOf(`${x.leg.symbol}:${x.leg.side}`)]}
               onSide={(side) => update(i, { side })}
@@ -373,6 +383,7 @@ export function HedgeProposal({
 
 function LegRow({
   live,
+  enter,
   editable,
   status,
   onSide,
@@ -381,6 +392,7 @@ function LegRow({
   onRemove,
 }: {
   live: Live;
+  enter?: number; // position in the entrance stagger, while the proposal is entering
   editable: boolean;
   status?: { status: string; positionId?: bigint; error?: string };
   onSide: (s: HedgeLeg["side"]) => void;
@@ -408,7 +420,10 @@ function LegRow({
       : blocked;
 
   return (
-    <li className={`flex flex-col gap-3 border-t border-border p-4 first:border-t-0 md:px-6 ${blocked && !status ? "text-muted" : ""}`}>
+    <li
+      className={`flex flex-col gap-3 border-t border-border p-4 first:border-t-0 md:px-6 ${blocked && !status ? "text-muted" : ""} ${enter !== undefined ? "appear" : ""}`}
+      style={enter !== undefined ? { transitionDelay: `${enter * LEG_STAGGER_MS}ms` } : undefined}
+    >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <IconTile small category={leg.category} image={leg.imageUrl} />

@@ -384,6 +384,19 @@
       }
     }
   }
+  /* The hedge agent is working: a small square beside its status line breathes in opacity. It
+     stays solid under a reduced-motion preference; the status text still changes. */
+  .agent-pulse {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: currentColor;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .agent-pulse {
+      animation: agent-pulse 1200ms var(--ease-in-out) infinite alternate;
+    }
+  }
   .over-field {
     position: relative;
     z-index: 1;
@@ -947,6 +960,11 @@
 @keyframes draw-y {
   from {
     transform: scaleY(0);
+  }
+}
+@keyframes agent-pulse {
+  to {
+    opacity: 0.2;
   }
 }
 

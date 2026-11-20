@@ -83,3 +83,20 @@ export type HedgeResponse =
   | { type: "question"; question: string }
   | { type: "proposal"; proposal: HedgeProposal }
   | { type: "error"; error: string };
+
+// Streaming (/api/hedge with `Accept: text/event-stream`). Each step of the agent's tool loop is
+// sent as it starts and again when it finishes (same id); the stream ends with one result.
+// `label` and `detail` come from fixed server templates; the only outside text in them is the
+// search keyword and identifiers or titles from Gemini data.
+export type HedgeStepKind = "model" | "tool";
+
+export type HedgeStepEvent = {
+  id: number;
+  phase: "start" | "done";
+  kind: HedgeStepKind;
+  tool?: string; // only when kind is "tool"
+  label: string;
+  detail?: string;
+};
+
+export type HedgeStreamEvent = { event: "step"; data: HedgeStepEvent } | { event: "result"; data: HedgeResponse };
