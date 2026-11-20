@@ -22,7 +22,7 @@ through a QuickNode Stream into a live activity feed and back to the keeper.
                                |                |                          ^
                  cached proxy  |                | books, every 10 s        | signed orders
                                v                v                          |
-  Browser  <---->  Web (Next.js on Vercel)     Keeper (Node, runs locally) -+
+  Browser  <---->  Web (Next.js on Vercel)     Keeper (Node, on Railway)   -+
   wagmi/viem       /api/markets, /api/book       - posts bid/ask to PriceOracle
      |             /api/combos, /market-requests - fills opens/closes, calls recordFill
      |             /api/qn-stream  <---+         - liquidates and deleverages
@@ -134,7 +134,7 @@ table is created on first use. Without `DATABASE_URL`, development keeps request
 
 ```
 contracts/   Foundry project: PriceOracle, LendingVault, MarginManager, tests, Deploy script
-keeper/      Node + TypeScript keeper (runs locally, not on Vercel)
+keeper/      Node + TypeScript keeper (Railway worker in production, run locally for development)
 web/         Next.js App Router app (deployed to Vercel)
 scripts/     export-abis.mjs (ABIs to web and keeper), stream.mjs (QuickNode Streams REST)
 demo/        Demo script, the trailer video and the scripts that render it
@@ -205,8 +205,41 @@ pnpm start        # loads ../.env
 
 It selects the most active Gemini contracts, registers them on the oracle, posts prices when they
 change (and at least every 45 s), fills pending opens and closes, and liquidates. With no
-`GEMINI_API_KEY` it runs in **mock mode** and simulates fills at the Gemini book price. Stop it when
-you are not demoing: every price post costs gas.
+`GEMINI_API_KEY` it runs in **mock mode** and simulates fills at the Gemini book price. Every price
+post costs gas. Locally it reads the repository-root `.env`; in a container everything comes from
+the process environment.
+
+In production the keeper runs on Railway as a single long-running worker: no HTTP port, one
+replica, restart on failure, and its state file on a volume (`keeper/Dockerfile`,
+`keeper/railway.toml`). Only one keeper may run per wallet, because two would compete for the same
+nonces, so stop any local keeper while the Railway one runs. Railway is also set never to overlap
+the old and new deployment.
+
+All writes go through one transaction queue (`keeper/src/chain.ts`). Each transaction is signed
+once, and when the RPC node reports the send method as unavailable the same signed bytes are
+re-broadcast, up to 3 times, 1 s apart. On a resend, "already known" or "nonce too low" counts as
+landed. A market whose oracle registration failed is retried during the price loop, at most once a
+minute per market, and the keeper reads its registration from the chain before sending again
+(`keeper/src/oracle.ts`).
+
+#### Keeper on Railway
+
+From the repository root, with the Railway CLI logged in and the project linked (`railway link`):
+
+```bash
+node scripts/railway-env.mjs --dry-run                          # list the variables it would set
+node scripts/railway-env.mjs                                    # set them on the keeper service
+railway up ./keeper --path-as-root --service keeper --detach    # build and deploy the current code
+railway logs --service keeper
+```
+
+`scripts/railway-env.mjs` reads only an allowlist of keeper variable names from the root `.env`
+(never the whole file) and skips empty ones. It sends each value to `railway variable set --stdin`
+so values never appear in a command line or in its output, and it prints variable names only. It
+also sets `VECTIS_APP_URL` to the deployed web app (`--app-url` overrides it) and
+`KEEPER_STATE_FILE` to `/data/keeper-state.json` on the volume. Variables are staged without a
+deploy. After a variable change, `railway redeploy --service keeper` restarts the existing image;
+`railway up` is needed to ship new code.
 
 ### Web
 
@@ -237,10 +270,12 @@ Root `.env` (git-ignored; see `.env.example`):
 | `GEMINI_PUBLIC_BASE` | keeper, web | Public market data, default `https://api.gemini.com` |
 | `GEMINI_TRADE_BASE` | keeper | Order placement, default `https://api.sandbox.gemini.com` |
 | `GEMINI_API_KEY`, `GEMINI_API_SECRET` | keeper | Optional. Empty = mock mode |
-| `KEEPER_MARKET_COUNT`, `KEEPER_POLL_MS`, `KEEPER_HEARTBEAT_MS` | keeper | Tracked markets, poll interval, forced re-post interval |
-| `KEEPER_SYMBOLS`, `KEEPER_SCAN_EVENTS` | keeper | Optional explicit symbols; events scanned at startup |
-| `VECTIS_APP_URL` | keeper, scripts | Deployed web URL: stream feed, combo registry, webhook target |
-| `KEEPER_STREAM_POLL_MS`, `KEEPER_COMBO_POLL_MS`, `KEEPER_COMBO_COUNT` | keeper | Stream feed and combo tuning |
+| `KEEPER_MARKET_COUNT`, `KEEPER_POLL_MS`, `KEEPER_HEARTBEAT_MS` | keeper | Tracked markets (default 8), poll interval (default 10000 ms), forced re-post interval (default 45000 ms) |
+| `KEEPER_SYMBOLS`, `KEEPER_SCAN_EVENTS` | keeper | Optional comma-separated explicit symbols; events scanned at startup (default 100) |
+| `VECTIS_APP_URL` | keeper, scripts | Deployed web URL: stream feed, combo registry, market requests, webhook target. Empty in the keeper = RPC polling only, no combos or market requests |
+| `KEEPER_STREAM_POLL_MS`, `KEEPER_COMBO_POLL_MS`, `KEEPER_COMBO_COUNT` | keeper | Stream feed poll (default 1500 ms), combo registry poll (default 10000 ms), most combos tracked (default 6) |
+| `KEEPER_STATE_FILE` | keeper | Optional path of the keeper's state file, default `.keeper-state.json` in the keeper package; on Railway a path on the volume |
+| `ADDRESSES_FILE` | keeper | Optional path of the contract addresses file, default `addresses.json` in the keeper package |
 | `KEEPER_REQUEST_COUNT` | keeper | Most markets priced on request from the web app (hedge proposals), default 6; 0 disables |
 | `QUICKNODE_API_KEY` | scripts | Creates and manages the stream |
 | `QN_STREAM_SECURITY_TOKEN` | scripts, web | Webhook signing secret |
@@ -273,6 +308,13 @@ No Gemini key, private key or `NEXT_PUBLIC_` secret is ever used by the web app.
   price; the shortfall is written off against vault depositors.
 - **Trusted oracle.** A single poster; no aggregation or dispute path.
 - **Keeper gas.** Posting prices costs testnet USDC continuously while it runs.
+- **One keeper per wallet.** The Railway keeper uses the same wallet for deploying, posting prices
+  and executing, and a second keeper on that wallet would compete for nonces.
+- **Stale nonce.** If the keeper's local nonce falls out of step with the chain, price posts can
+  stall for up to about a minute before it resyncs.
+- **RPC endpoint.** The keeper depends on the RPC accepting `eth_sendRawTransaction`. An endpoint
+  that intermittently rejected it caused failed registrations and price posts before the resend
+  and registration retry were added.
 - **Agent trace.** Thoughts depend on what the model returns and may be absent for a step. Closing
   the page stops the stream, but the run on the server continues to the end. The stream encoding,
   decoding and agent events have unit tests; the trace UI has no browser tests.
