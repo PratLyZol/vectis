@@ -374,12 +374,16 @@ export const THOUGHT_CHARS = 600;
 const ENCRYPTED = /^\[some reasoning content is encrypted\]$/i;
 
 /** Plain text for the trace: no control characters or think tags, single spaces, capped. */
+// Instrument-like identifiers the audience should not see: Gemini symbols (GEMI-…) and bare
+// tickers of 2+ capitals and 6+ digits with optional -SUFFIX parts (NGAS2611302200).
+const INSTRUMENT = /\b(?:GEMI(?:-[A-Z0-9]+)+|[A-Z]{2,}\d{6,}(?:-[A-Z0-9]+)*)\b/g;
+
 export function cleanThought(s: string): string {
-  const t = s
-    .replace(/<\/?think>/gi, " ")
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  let t = s.replace(/<\/?think>/gi, " ").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
+  const scrubbed = t.replace(INSTRUMENT, " ");
+  // Tidy only where a token was removed: no space left before punctuation. No grammar repair.
+  if (scrubbed !== t) t = scrubbed.replace(/\s+([.,;:!?)])/g, "$1");
+  t = t.replace(/\s+/g, " ").trim();
   return t.length > THOUGHT_CHARS ? `${t.slice(0, THOUGHT_CHARS - 1).trimEnd()}…` : t;
 }
 

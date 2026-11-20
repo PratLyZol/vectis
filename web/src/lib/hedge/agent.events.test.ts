@@ -222,6 +222,11 @@ describe("runHedgeAgent onThought", () => {
     const long = cleanThought("word ".repeat(400));
     expect(long.length).toBe(THOUGHT_CHARS);
     expect(long.endsWith("…")).toBe(true);
+    // Instrument identifiers are scrubbed from thoughts; prices, dates, strikes and short caps stay.
+    expect(cleanThought("The Nov 30 event has a ladder. Get event NGAS2611302200.")).toBe("The Nov 30 event has a ladder. Get event.");
+    expect(cleanThought("Preview GEMI-ETH2611302200-HI1750 , then size it.")).toBe("Preview, then size it.");
+    const plain = 'ETH ~$1,750 now. Hedge: No on "$1,750 or above" by Nov 30 (HI side, 2026 expiry), Yes on $3.7+ at 46¢.';
+    expect(cleanThought(plain)).toBe(plain);
     expect(splitThink("plan</think>Answer")).toEqual({ think: "plan", rest: "Answer" });
     expect(splitThink("Answer <think>x</think>")).toEqual({ think: "", rest: "Answer <think>x</think>" });
     expect(splitThink("<think>unclosed")).toEqual({ think: "unclosed", rest: "" });
