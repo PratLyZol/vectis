@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { marketIdOf } from "../src/math.js";
 import { OracleFeed } from "../src/oracle.js";
 import {
@@ -131,5 +131,89 @@ describe("OracleFeed.syncRequested", () => {
     expect(sent).toEqual(["registerMarket BASE", "registerMarket A"]);
     await feed.syncRequested([]);
     expect(feed.marketSymbols()).toEqual(["BASE"]);
+  });
+});
+
+describe("OracleFeed.retryRegistrations", () => {
+  const T0 = Date.parse("2026-11-20T07:00:00.000Z");
+  const setup = () => {
+    let failSends = true;
+    // marketId -> on-chain close time (s) for markets the oracle already knows.
+    const onChain = new Map<string, bigint>();
+    const sent: string[] = [];
+    const clients = {
+      publicClient: {
+        readContract: async ({ functionName, args }: { functionName: string; args: [string] }) =>
+          functionName === "isRegistered" ? onChain.has(args[0]) : (onChain.get(args[0]) ?? 0n),
+      },
+    };
+    const queue = {
+      send: async (label: string) => {
+        sent.push(label);
+        if (failSends) throw new Error('send failed: The method "eth_sendRawTransaction" does not exist / is not available.');
+      },
+    };
+    const feed = new OracleFeed(clients as never, queue as never, {} as never, "0x0000000000000000000000000000000000000001", 10_000, 45_000);
+    return {
+      feed,
+      sent,
+      heal: () => (failSends = false),
+      markOnChain: (id: string, closeTime: number) => onChain.set(id, BigInt(closeTime)),
+    };
+  };
+  const market = (symbol: string, closeTime: number) => ({ symbol, eventTicker: "E", title: "t", label: "l", closeTime });
+
+  it("retries a failed registration at most once a minute, then stops once registered", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(T0);
+      const { feed, sent, heal } = setup();
+      await feed.addMarkets([market("MINN", T0 / 1000 + 3600)]);
+      expect(sent).toEqual(["registerMarket MINN"]);
+
+      vi.setSystemTime(T0 + 30_000);
+      await feed.retryRegistrations();
+      expect(sent).toHaveLength(1); // too soon
+
+      heal();
+      vi.setSystemTime(T0 + 61_000);
+      await feed.retryRegistrations();
+      expect(sent).toEqual(["registerMarket MINN", "registerMarket MINN"]);
+
+      vi.setSystemTime(T0 + 200_000);
+      await feed.retryRegistrations();
+      expect(sent).toHaveLength(2); // registered now
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not resend when the earlier attempt landed on-chain after all", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(T0);
+      const { feed, sent, markOnChain } = setup();
+      await feed.addMarkets([market("STL", T0 / 1000 + 3600)]);
+      markOnChain(marketIdOf("STL"), T0 / 1000 + 3600);
+      vi.setSystemTime(T0 + 61_000);
+      await feed.retryRegistrations();
+      expect(sent).toEqual(["registerMarket STL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips markets that have already closed", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(T0);
+      const { feed, sent } = setup();
+      await feed.addMarkets([market("SOON", T0 / 1000 + 30)]);
+      vi.setSystemTime(T0 + 120_000);
+      await feed.retryRegistrations();
+      expect(sent).toEqual(["registerMarket SOON"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -6,6 +6,7 @@ import {
   defineChain,
   erc20Abi,
   http,
+  keccak256,
   parseGwei,
   type Abi,
   type Account,
@@ -103,6 +104,76 @@ export function revertReason(err: unknown): string {
   return errText(err);
 }
 
+/** Every message in an error's cause chain, joined (viem nests the RPC's answer in `cause`). */
+function errorMessages(err: unknown): string {
+  const parts: string[] = [];
+  let e: unknown = err;
+  for (let depth = 0; e && depth < 8; depth++) {
+    if (typeof e === "object") {
+      const o = e as { message?: unknown; shortMessage?: unknown; details?: unknown; cause?: unknown };
+      for (const v of [o.shortMessage, o.message, o.details]) if (typeof v === "string") parts.push(v);
+      e = o.cause;
+    } else {
+      parts.push(String(e));
+      break;
+    }
+  }
+  return parts.join(" | ");
+}
+
+/**
+ * The node that answered does not offer sending at all (a load-balanced RPC sometimes routes
+ * eth_sendRawTransaction to such a node). Nothing was accepted, so the same signed tx can be resent.
+ */
+export function isMethodUnavailable(err: unknown): boolean {
+  return /does not exist\s*\/\s*is not available|method not found|method not available|-32601/i.test(
+    errorMessages(err),
+  );
+}
+
+/** The node already holds (or has mined) a tx with this nonce: on a resend, the earlier send landed. */
+export function isAlreadyKnown(err: unknown): boolean {
+  return /already known|known transaction|already imported|nonce too low|transaction already exists/i.test(
+    errorMessages(err),
+  );
+}
+
+export const SEND_RETRIES = 3;
+export const SEND_RETRY_MS = 1000;
+
+/**
+ * Broadcast one signed transaction, resending the identical bytes (same nonce, same hash) when
+ * the node says the method is unavailable. On a resend, "already known" / "nonce too low" means an
+ * earlier attempt reached the mempool: return the local hash and let the caller wait for the
+ * receipt. Any other error, or running out of retries, throws the last error.
+ */
+export async function broadcastSigned(
+  send: () => Promise<unknown>,
+  hash: Hex,
+  opts: { retries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void>; label?: string } = {},
+): Promise<Hex> {
+  const retries = opts.retries ?? SEND_RETRIES;
+  const delayMs = opts.delayMs ?? SEND_RETRY_MS;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await send();
+      return hash;
+    } catch (err) {
+      if (attempt > 0 && isAlreadyKnown(err)) {
+        log.info(`${opts.label ?? "tx"} already in the mempool from an earlier attempt`, { tx: hash, attempt });
+        return hash;
+      }
+      if (attempt >= retries || !isMethodUnavailable(err)) throw err;
+      log.warn(`${opts.label ?? "tx"} send rejected by the RPC node; resending the same signed tx`, {
+        attempt: attempt + 1,
+        of: retries,
+      });
+      await sleep(delayMs);
+    }
+  }
+}
+
 export class TxError extends Error {
   constructor(
     message: string,
@@ -161,13 +232,20 @@ export class TxQueue {
       }
       const block = await publicClient.getBlock({ blockTag: "latest" });
       const fees = computeFees(block.baseFeePerGas, this.bumpPct);
-      hash = await walletClient.sendTransaction({
+      // Sign once, then broadcast the same bytes: a resend can never take a second nonce.
+      const serializedTransaction = await walletClient.signTransaction({
+        type: "eip1559",
         to,
         data,
         nonce: this.nonce,
         gas: (gas * 13n) / 10n + 10_000n,
         ...fees,
       });
+      hash = await broadcastSigned(
+        () => publicClient.sendRawTransaction({ serializedTransaction }),
+        keccak256(serializedTransaction),
+        { label },
+      );
       this.nonce++;
     } catch (err) {
       this.nonce = null; // resync from the chain on the next send

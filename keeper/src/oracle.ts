@@ -16,6 +16,9 @@ const log = logger("oracle");
 /** Minimum spacing of Gemini public requests (the limit is 120/min; we stay at <= 1/s). */
 export const PUBLIC_MIN_GAP_MS = 1000;
 
+/** Spacing of registration retries for a tracked market whose registerMarket failed. */
+export const REGISTER_RETRY_MS = 60_000;
+
 interface Priced {
   marketId: Hex;
   /** Instrument symbol (single market) or combo symbol; used for logs only on combos. */
@@ -27,6 +30,8 @@ interface Priced {
   /** Do not include in a batch before this time (set after an individual post failure). */
   penaltyUntil: number;
   lastWarnAt: number;
+  /** Last registration attempt (ms); an unregistered market is retried at most once per REGISTER_RETRY_MS. */
+  registerAttemptAt?: number;
 }
 
 interface MarketState extends TrackedMarket, Priced {}
@@ -129,6 +134,7 @@ export class OracleFeed {
 
   /** Register on the oracle when new or when the close time changed. Sets `registered`. */
   private async ensureRegistered(p: Priced, closeTime: number): Promise<void> {
+    p.registerAttemptAt = Date.now();
     try {
       const [isRegistered, onChainClose] = await Promise.all([
         this.clients.publicClient.readContract({
@@ -337,6 +343,25 @@ export class OracleFeed {
     return this.deriveCombo(c);
   }
 
+  /**
+   * Retry registration for tracked markets and combos that are still unregistered (a failed
+   * registerMarket is otherwise never retried) and have not closed yet, at most once per
+   * REGISTER_RETRY_MS each.
+   */
+  async retryRegistrations(now = Date.now()): Promise<void> {
+    const nowS = Math.floor(now / 1000);
+    const candidates: Array<{ p: Priced; closeTime: number }> = [
+      ...[...this.markets.values()].map((m) => ({ p: m as Priced, closeTime: m.closeTime })),
+      ...[...this.combos.values()].map((c) => ({ p: c as Priced, closeTime: c.def.closeTime })),
+    ];
+    for (const { p, closeTime } of candidates) {
+      if (p.registered || !(closeTime > nowS)) continue;
+      if (p.registerAttemptAt !== undefined && now - p.registerAttemptAt < REGISTER_RETRY_MS) continue;
+      log.info("retrying market registration", { symbol: p.symbol });
+      await this.ensureRegistered(p, closeTime);
+    }
+  }
+
   /** Startup: run cycles back to back until every needed book has been fetched once. */
   async prime(): Promise<void> {
     for (let i = 0; i < 6; i++) {
@@ -350,6 +375,7 @@ export class OracleFeed {
    * and combo whose quote changed or whose heartbeat is due, in one batch.
    */
   async cycle(): Promise<void> {
+    await this.retryRegistrations();
     const needed = this.neededSymbols();
     for (const symbol of pickBooksToRefresh(needed, (s) => this.books.get(s)?.at ?? 0, this.budget)) {
       await this.refreshBook(symbol);
