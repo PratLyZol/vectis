@@ -410,20 +410,20 @@ function sceneChart(c: Ctx, t: number, f: Fonts) {
 }
 
 // 27.6 to 32.8: the hedge agent. A typed exposure becomes proposed positions.
-// The two legs are an illustration of the proposal layout, not a saved run.
-const HEDGE_PROMPT = "I RUN A LAUNDROMAT. GAS COSTS ME $900 A MONTH. HEDGE IT WITH $200.";
+// The prompt and both legs are a real proposal returned by the agent on production on 2026-11-20.
+const HEDGE_PROMPT = "I HOLD 20 ETH AND I'M WORRIED ABOUT A DROP BEFORE THE END OF THE MONTH. BUDGET $500.";
 const HEDGE_LEGS: [string, string, string, string][] = [
-  ["YES", "Natural gas above $4 in December", "$120  3x", "DIRECT"],
-  ["YES", "Colder winter than normal", "$80  2x", "PROXY"],
+  ["NO", "ETH on November 30: $1,750 or above", "$300  1x", "DIRECT"],
+  ["NO", "ETH on November 30: $1,500 or above", "$200  1x", "DIRECT"],
 ];
 
 function sceneHedge(c: Ctx, t: number, f: Fonts) {
   const typed = Math.floor(seg(t, 0.2, 1.8) * HEDGE_PROMPT.length);
   const lift = inOut(seg(t, 2.0, 2.4)) * 60;
   const text = `> ${HEDGE_PROMPT.slice(0, typed)}`;
-  label(c, text, 150, 300 - lift, `500 30px ${f.mono}`, "#fff", "left", 3);
+  label(c, text, 150, 300 - lift, `500 26px ${f.mono}`, "#fff", "left", 3);
   if (t < 2.2 && Math.floor(t * 5) % 2 === 0) {
-    c.font = `500 30px ${f.mono}`;
+    c.font = `500 26px ${f.mono}`;
     (c as Ctx & { letterSpacing: string }).letterSpacing = "3px";
     c.fillStyle = "#fff";
     c.fillRect(150 + c.measureText(text).width + 6, 300 - lift - 17, 16, 34);
